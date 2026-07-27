@@ -254,6 +254,53 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 .zombie-row .zinfo b{color:var(--bone);}
 .zombie-row .ztag{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone-dim);}
 .zbtn{background:var(--panel2);border:1px solid var(--border);border-radius:2px;color:var(--spore);font-family:'JetBrains Mono',monospace;font-size:9.5px;padding:6px 8px;white-space:nowrap;}
+
+/* ---------- DM ENGINE ---------- */
+.scene-box{
+  background:linear-gradient(180deg,var(--panel),#17181b);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px;margin-bottom:12px;font-family:'Inter',sans-serif;font-size:14px;line-height:1.65;color:var(--bone);
+  min-height:60px;white-space:pre-wrap;
+}
+.scene-box.thinking{color:var(--bone-dim);font-style:italic;}
+.scene-box.glitchtext{position:relative;}
+.scene-box.glitchtext::after{
+  content:attr(data-text);position:absolute;left:14px;top:14px;color:var(--spore);opacity:0;
+  animation:textglitch 6s infinite;overflow:hidden;width:calc(100% - 28px);
+}
+@keyframes textglitch{0%,94%{opacity:0;}94.4%{opacity:.5;transform:translate(1px,-1px);}94.8%{opacity:0;}}
+.choice-btn{
+  display:block;width:100%;text-align:left;background:var(--panel2);border:1px solid var(--border);
+  border-left:3px solid var(--spore);border-radius:2px;color:var(--bone);font-family:'Inter',sans-serif;
+  font-size:13px;padding:10px 12px;margin-bottom:8px;
+}
+.choice-btn:active{background:var(--spore-dim);}
+.roll-panel{background:var(--panel2);border:1px solid var(--signal);border-radius:var(--radius);padding:12px;margin:10px 0;text-align:center;}
+.roll-die-btn{
+  font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--bg);background:var(--signal);
+  border:none;border-radius:4px;padding:10px 20px;margin-top:8px;
+}
+.roll-result{font-family:'JetBrains Mono',monospace;font-size:28px;color:var(--signal);margin:6px 0;}
+.roll-result.crit-hi{color:var(--spore);}
+.roll-result.crit-lo{color:var(--danger);}
+.dm-quickbar{display:flex;gap:6px;margin-bottom:12px;}
+.dm-quickbar button{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:2px;color:var(--bone-dim);
+  font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:8px 4px;}
+.dm-quickbar button.on{color:var(--spore);border-color:var(--spore);}
+.journal-entry{border-left:2px solid var(--border);padding:6px 0 6px 10px;margin-bottom:10px;font-size:12.5px;color:var(--bone-dim);}
+.journal-entry .jtag{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--signal);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:2px;}
+.journal-entry.scene{border-left-color:var(--spore);}
+.journal-entry.outcome{border-left-color:var(--ember);}
+#app.flashlight-on main, #app.flashlight-on .hud{ background:#000; }
+#app.flashlight-on main{
+  -webkit-mask-image:radial-gradient(circle 130px at var(--fx,50%) var(--fy,50%), #fff 40%, transparent 75%);
+  mask-image:radial-gradient(circle 130px at var(--fx,50%) var(--fy,50%), #fff 40%, transparent 75%);
+}
+#app.static-burst::before{
+  content:"";position:absolute;inset:0;z-index:50;pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(233,228,214,0.05) 0 1px, transparent 1px 3px);
+  animation:staticflash .6s steps(2) 2;
+}
+@keyframes staticflash{0%{opacity:0;}20%{opacity:.9;}40%{opacity:.1;}60%{opacity:.7;}100%{opacity:0;}}
 </style>
 </head>
 <body>
@@ -550,6 +597,34 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       <div id="zombie-list"></div>
     </section>
 
+    <!-- ===================== DM TAB ===================== -->
+    <section class="panel" id="panel-dm">
+      <p class="quote-block">The signal is never clean out here. But something is still narrating — and it knows exactly where you're standing.</p>
+
+      <div class="dm-quickbar">
+        <button id="dm-flashlight-btn">🔦 Flashlight</button>
+        <button id="dm-audio-btn">🔊 Ambient Audio</button>
+        <button id="dm-static-btn">📻 Static Burst</button>
+      </div>
+
+      <div class="eyebrow">Current Scene</div>
+      <div class="scene-box" id="dm-scene">Tap "Generate Scene" to have the DM read your current surroundings.</div>
+      <button class="add-btn" id="dm-generate-btn">🎬 Generate Scene From Current Zone</button>
+
+      <div id="dm-choices"></div>
+
+      <div class="eyebrow">Or Describe Your Own Action</div>
+      <div class="card">
+        <textarea id="dm-action-input" placeholder="e.g. I creep along the fence line and try to pull the Shambler off balance with my grapple line"></textarea>
+        <button class="add-btn" id="dm-submit-action-btn" style="margin-top:10px;margin-bottom:0;">Submit Action</button>
+      </div>
+
+      <div id="dm-roll-area"></div>
+
+      <div class="eyebrow" style="margin-top:22px;">Story Journal</div>
+      <div id="dm-journal"></div>
+    </section>
+
   </main>
 
   <div class="savenote" id="savenote">SAVED</div>
@@ -562,6 +637,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
     <button data-tab="gear"><span class="ic">🎒</span>Gear</button>
     <button data-tab="rules"><span class="ic">📜</span>Rules</button>
     <button data-tab="radar"><span class="ic">📡</span>Radar</button>
+    <button data-tab="dm"><span class="ic">🧠</span>DM</button>
   </nav>
 </div>
 
@@ -1458,9 +1534,300 @@ window.addTravel = addTravel;
 window.addLoot = addLoot;
 window.addInventory = addInventory;
 
+/* ============================================================
+   AI DM ENGINE
+   ============================================================ */
+async function callClaude(systemPrompt, userPrompt){
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      model:"claude-sonnet-4-6",
+      max_tokens:1000,
+      system: systemPrompt,
+      messages:[{role:"user", content:userPrompt}]
+    })
+  });
+  const data = await res.json();
+  const text = (data.content||[]).map(b=>b.text||'').join('');
+  return text;
+}
+function parseJsonLoose(text){
+  try{
+    const cleaned = text.replace(/```json|```/g,'').trim();
+    return JSON.parse(cleaned);
+  }catch(e){ return null; }
+}
+
+const DM_SYSTEM = `You are the narrative engine for "Ashfall," a real-world-movement survival horror game.
+Lore: Ashfall Peninsula is where an airborne spore outbreak began. Spores drift inland, mutate, weaken electronics, and cause hallucinations and unpredictable undead behavior. No place is fully safe.
+Party: Lawrence (Hunter, d12/d20/d8), Lucho (Scavenger, d20/d12/d10), Mireyah (Medic, d10/d8/d20), Lucas (Engineer, d10/d10/d20).
+Zombie types: Shambler (slow, noise-attracted), Runner (fast, aggressive), Sporebound (unpredictable), Mutated (rare, powerful).
+Factions: Dockside Collective (containment), Greywater Crew (profit), Ashborn (cult), Lost Signal (radio operators).
+Tone: tense, atmospheric, short paragraphs, second person plural ("you"), grounded in the real sensory details given.
+You must respond with ONLY raw JSON, no markdown fences, no commentary.`;
+
+function gridKey(lat,lng){ return `${lat.toFixed(3)}_${lng.toFixed(3)}`; }
+async function getZoneMemory(){
+  if(!myPos) return [];
+  try{
+    const snap = await get(ref(db, `ashfall-zone-memory/${gridKey(myPos.lat,myPos.lng)}`));
+    return snap.exists() ? snap.val() : [];
+  }catch(e){ return []; }
+}
+async function addZoneMemory(note){
+  if(!myPos || !note) return;
+  const key = gridKey(myPos.lat,myPos.lng);
+  try{
+    const existing = await getZoneMemory();
+    const updated = [...existing, note].slice(-5);
+    await set(ref(db, `ashfall-zone-memory/${key}`), updated);
+  }catch(e){}
+}
+
+async function addJournalEntry(kind, text){
+  try{ await push(ref(db,'ashfall-journal'), {ts: Date.now(), kind, text}); }catch(e){}
+}
+function renderJournal(entries){
+  const c = document.getElementById('dm-journal');
+  c.innerHTML='';
+  const sorted = Object.values(entries||{}).sort((a,b)=>b.ts-a.ts).slice(0,25);
+  if(sorted.length===0){ c.innerHTML = '<p class="flavor">No story beats logged yet.</p>'; return; }
+  const spiky = state.levels.spore >= 50;
+  sorted.forEach(e=>{
+    const div = document.createElement('div');
+    div.className = 'journal-entry ' + (e.kind||'');
+    if(spiky) div.classList.add('glitchtext');
+    const time = new Date(e.ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    div.innerHTML = `<span class="jtag">${e.kind} · ${time}</span>${e.text}`;
+    if(spiky) div.setAttribute('data-text', e.text);
+    c.appendChild(div);
+  });
+}
+onValue(ref(db,'ashfall-journal'), snap=>{ renderJournal(snap.exists()?snap.val():{}); });
+
+const FACTION_LADDER = ['Hostile','Wary','Neutral','Friendly','Allied'];
+function applyFactionEffect(fx){
+  if(!fx || !fx.name) return;
+  const f = state.factions.find(x=>x.name.toLowerCase().includes(fx.name.toLowerCase()) || fx.name.toLowerCase().includes(x.name.toLowerCase()));
+  if(!f) return;
+  let idx = FACTION_LADDER.indexOf(f.standing);
+  idx = Math.max(0, Math.min(FACTION_LADDER.length-1, idx + (fx.delta||0)));
+  f.standing = FACTION_LADDER[idx];
+  saveWorld(); renderFactions();
+}
+
+let pendingLoot = null;
+function showLootButton(lootText){
+  pendingLoot = lootText;
+  const area = document.getElementById('dm-roll-area');
+  if(!lootText) return;
+  const btn = document.createElement('button');
+  btn.className = 'add-btn'; btn.style.color='var(--signal)';
+  btn.textContent = `+ Add "${lootText}" to Inventory`;
+  btn.addEventListener('click', ()=>{
+    state.inventory.push({item: lootText, qty:1, owner:'Party (shared)', category:'Special', cond:'Found in the field'});
+    saveGear(); renderInventory();
+    btn.remove();
+  });
+  area.appendChild(btn);
+}
+
+function buildContextSummary(){
+  const L = state.location;
+  const nearby = (typeof visibleZombies==='function' && myPos) ? visibleZombies() : [];
+  const threatStr = nearby.length ? nearby.map(z=>`${z.type} ${Math.round(z.dist)}m ${compassLabel(z.brg)}`).join(', ') : 'none detected';
+  const partyStr = state.characters.map(c=>`${c.name||c.role} (${c.role}): ${c.hp}/${c.maxHp} HP, ${c.aura}/${c.maxAura} Aura, ${c.status}`).join(' | ');
+  return `Zone type: ${L.zone}. Real location context: ${L.real||'unspecified'}. Spore density: ${L.spore}. Noise: ${L.noise}. Light: ${L.light}. Weather: ${L.weather}. Known threats nearby: ${L.threats||'none noted'}. Radar-detected threats: ${threatStr}. Faction presence: ${L.faction||'none noted'}. Party status: ${partyStr}.`;
+}
+
+function setSceneText(text, thinking){
+  const box = document.getElementById('dm-scene');
+  box.textContent = text;
+  box.classList.toggle('thinking', !!thinking);
+  box.classList.toggle('glitchtext', state.levels.spore>=50);
+  box.setAttribute('data-text', text);
+}
+function renderChoices(choices){
+  const c = document.getElementById('dm-choices');
+  c.innerHTML='';
+  (choices||[]).forEach(choice=>{
+    const btn = document.createElement('button');
+    btn.className='choice-btn';
+    btn.textContent = choice;
+    btn.addEventListener('click', ()=> submitAction(choice));
+    c.appendChild(btn);
+  });
+}
+
+document.getElementById('dm-generate-btn').addEventListener('click', generateScene);
+document.getElementById('dm-submit-action-btn').addEventListener('click', ()=>{
+  const val = document.getElementById('dm-action-input').value.trim();
+  if(val) submitAction(val);
+  document.getElementById('dm-action-input').value='';
+});
+
+async function generateScene(){
+  setSceneText('The DM is reading the scene...', true);
+  document.getElementById('dm-choices').innerHTML='';
+  document.getElementById('dm-roll-area').innerHTML='';
+  const memory = await getZoneMemory();
+  const prompt = `${buildContextSummary()} Memory of this exact real-world spot from past visits: ${memory.length? memory.join(' | ') : 'none, first time here'}.
+Generate the next scene. Respond with ONLY this JSON shape: {"narration": "2-4 sentence atmospheric scene description grounded in the given context", "choices": ["short punchy action option 1", "option 2", "option 3", "option 4"]}`;
+  try{
+    const raw = await callClaude(DM_SYSTEM, prompt);
+    const parsed = parseJsonLoose(raw);
+    if(parsed && parsed.narration){
+      setSceneText(parsed.narration, false);
+      renderChoices(parsed.choices);
+      addJournalEntry('scene', parsed.narration);
+    } else {
+      setSceneText('The signal broke up before the scene came through. Try again.', false);
+    }
+  }catch(e){
+    setSceneText('Connection to the DM failed. Check your connection and try again.', false);
+  }
+}
+
+async function submitAction(actionText){
+  const area = document.getElementById('dm-roll-area');
+  area.innerHTML = '<p class="flavor">Interpreting your action...</p>';
+  const prompt = `${buildContextSummary()} The player wants to: "${actionText}".
+Decide if this requires a roll. Respond with ONLY this JSON shape: {"needsRoll": true or false, "rollType": "Survival" or "Combat" or "Expertise", "advantage": "none" or "advantage" or "disadvantage", "setup": "1-2 sentence tense setup narration for this attempt"}`;
+  try{
+    const raw = await callClaude(DM_SYSTEM, prompt);
+    const parsed = parseJsonLoose(raw);
+    if(!parsed){ area.innerHTML = '<p class="flavor">The DM could not parse that. Try rephrasing.</p>'; return; }
+    if(!parsed.needsRoll){
+      area.innerHTML = `<div class="scene-box">${parsed.setup||''}</div>`;
+      await narrateOutcome(actionText, parsed.setup, null, null);
+      return;
+    }
+    const dice = ROLE_DICE[radarRole];
+    const dieMap = {Survival:dice.survival, Combat:dice.combat, Expertise:dice.expertise};
+    const die = dieMap[parsed.rollType] || dice.survival;
+    area.innerHTML = `
+      <div class="roll-panel">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--bone-dim);">${parsed.setup||''}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--signal);margin-top:8px;letter-spacing:1px;">${parsed.rollType.toUpperCase()} ROLL — ${die.toUpperCase()} ${parsed.advantage!=='none' ? '('+parsed.advantage+')' : ''}</div>
+        <button class="roll-die-btn" id="do-roll-btn">🎲 Roll ${die}</button>
+        <div id="roll-output"></div>
+      </div>`;
+    document.getElementById('do-roll-btn').addEventListener('click', async ()=>{
+      const sides = parseInt(die.replace('d',''));
+      const r1 = 1+Math.floor(Math.random()*sides);
+      const r2 = 1+Math.floor(Math.random()*sides);
+      let result = r1;
+      if(parsed.advantage==='advantage') result = Math.max(r1,r2);
+      else if(parsed.advantage==='disadvantage') result = Math.min(r1,r2);
+      const isCritHi = result===sides, isCritLo = result===1;
+      const out = document.getElementById('roll-output');
+      out.innerHTML = `<div class="roll-result ${isCritHi?'crit-hi':isCritLo?'crit-lo':''}">${result}${isCritHi?' — CRITICAL':isCritLo?' — CRIT FAIL':''}</div>`;
+      document.getElementById('do-roll-btn').remove();
+      await narrateOutcome(actionText, parsed.setup, `${parsed.rollType} ${die} roll: ${result}${isCritHi?' (critical success)':isCritLo?' (critical failure)':''}`, area);
+    });
+  }catch(e){
+    area.innerHTML = '<p class="flavor">Connection to the DM failed.</p>';
+  }
+}
+
+async function narrateOutcome(actionText, setup, rollInfo, area){
+  const target = area || document.getElementById('dm-roll-area');
+  const thinkingDiv = document.createElement('div');
+  thinkingDiv.className='scene-box thinking'; thinkingDiv.textContent='Narrating consequence...';
+  target.appendChild(thinkingDiv);
+  const prompt = `${buildContextSummary()} The player attempted: "${actionText}". Setup: "${setup||''}". ${rollInfo ? 'Roll outcome: '+rollInfo+'.' : 'No roll was needed for this action.'}
+Narrate the consequence. Respond with ONLY this JSON shape: {"narration":"3-5 sentence consequence narration in Ashfall's tense style", "factionEffect": {"name":"one of Dockside Collective/Greywater Crew/Ashborn/Lost Signal","delta":-1 or 1} or null, "lootSuggestion": "short item name found, or null", "zoneMemoryNote": "one short sentence to remember about this spot for next time"}`;
+  try{
+    const raw = await callClaude(DM_SYSTEM, prompt);
+    const parsed = parseJsonLoose(raw);
+    thinkingDiv.remove();
+    if(parsed && parsed.narration){
+      const box = document.createElement('div');
+      box.className='scene-box';
+      if(state.levels.spore>=50){ box.classList.add('glitchtext'); box.setAttribute('data-text',parsed.narration); }
+      box.textContent = parsed.narration;
+      target.appendChild(box);
+      addJournalEntry('outcome', parsed.narration);
+      applyFactionEffect(parsed.factionEffect);
+      if(parsed.lootSuggestion && parsed.lootSuggestion !== 'null') showLootButton(parsed.lootSuggestion);
+      if(parsed.zoneMemoryNote) addZoneMemory(parsed.zoneMemoryNote);
+    } else {
+      target.appendChild(Object.assign(document.createElement('p'), {className:'flavor', textContent:'The consequence got lost in the static.'}));
+    }
+  }catch(e){
+    thinkingDiv.remove();
+    target.appendChild(Object.assign(document.createElement('p'), {className:'flavor', textContent:'Connection to the DM failed.'}));
+  }
+}
+
+/* ---------- IMMERSION: flashlight, ambient audio, static burst ---------- */
+let audioCtx = null, ambientOn = false, ambientNodes = null, lastHeartbeatWarn = 0;
+function ensureAudioCtx(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  return audioCtx;
+}
+function playHeartbeat(){
+  const ctx = ensureAudioCtx();
+  [0, 0.28].forEach(delay=>{
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.frequency.value = 55; osc.type='sine';
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime+delay);
+    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime+delay+0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+delay+0.22);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(ctx.currentTime+delay); osc.stop(ctx.currentTime+delay+0.25);
+  });
+}
+function playStaticBurst(){
+  const ctx = ensureAudioCtx();
+  const bufferSize = ctx.sampleRate * 0.6;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1)*0.25;
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  const gain = ctx.createGain(); gain.gain.value = 0.5;
+  src.connect(gain); gain.connect(ctx.destination);
+  src.start();
+  document.getElementById('app').classList.add('static-burst');
+  setTimeout(()=>document.getElementById('app').classList.remove('static-burst'), 1400);
+}
+document.getElementById('dm-static-btn').addEventListener('click', playStaticBurst);
+document.getElementById('dm-audio-btn').addEventListener('click', (e)=>{
+  ambientOn = !ambientOn;
+  e.target.classList.toggle('on', ambientOn);
+  if(ambientOn){ ensureAudioCtx(); }
+});
+document.getElementById('dm-flashlight-btn').addEventListener('click', (e)=>{
+  const app = document.getElementById('app');
+  const on = app.classList.toggle('flashlight-on');
+  e.target.classList.toggle('on', on);
+});
+document.getElementById('app').addEventListener('touchmove', (e)=>{
+  if(!document.getElementById('app').classList.contains('flashlight-on')) return;
+  const t = e.touches[0];
+  const rect = document.getElementById('app').getBoundingClientRect();
+  document.getElementById('app').style.setProperty('--fx', (t.clientX-rect.left)+'px');
+  document.getElementById('app').style.setProperty('--fy', (t.clientY-rect.top)+'px');
+}, {passive:true});
+
+function checkLowHealthAudio(){
+  if(!ambientOn) return;
+  const anyCritical = state.characters.some(c=>c.hp <= 3 && c.hp > 0);
+  const now = Date.now();
+  if(anyCritical && now - lastHeartbeatWarn > 6000){
+    lastHeartbeatWarn = now;
+    playHeartbeat();
+  }
+}
+const _origRenderParty = renderParty;
+renderParty = function(){ _origRenderParty(); checkLowHealthAudio(); };
+
+/* ============================================================
+   GO
+   ============================================================ */
 initRadarUI();
 init();
 </script>
 </body>
 </html>
-
