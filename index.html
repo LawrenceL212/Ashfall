@@ -384,7 +384,84 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       <button class="add-btn" onclick="addInventory()">+ Add Item</button>
     </section>
 
-  </main>
+    <!-- ===================== RULES TAB ===================== -->
+    <section class="panel" id="panel-rules">
+      <div class="eyebrow">World Overview</div>
+      <p class="flavor">Ashfall Peninsula is where the outbreak began. Airborne spores drift inland, mutate, weaken electronics, and cause hallucinations and unpredictable undead behavior. No place is fully safe.</p>
+
+      <div class="eyebrow">Core Mechanic — Real-World Movement</div>
+      <p style="font-size:13.5px;line-height:1.6;color:var(--bone);margin:0 0 14px;">Wherever you physically walk becomes the next in-game zone. The DM converts your real surroundings into the fiction — placing zombies, spores, hazards, loot, and faction presence based on what's actually around you.</p>
+
+      <div class="eyebrow">The Four Roles</div>
+      <table class="ref">
+        <tr><td class="k">Hunter</td><td>d12 Survival · d20 Combat · d8 Expertise</td></tr>
+        <tr><td class="k">Scavenger</td><td>d20 Survival · d12 Combat · d10 Expertise</td></tr>
+        <tr><td class="k">Medic</td><td>d10 Survival · d8 Combat · d20 Expertise</td></tr>
+        <tr><td class="k">Engineer</td><td>d10 Survival · d10 Combat · d20 Expertise</td></tr>
+      </table>
+
+      <div class="eyebrow">Dice Rolls</div>
+      <table class="ref">
+        <tr><td class="k">Advantage</td><td>Roll 2, take the highest</td></tr>
+        <tr><td class="k">Disadvantage</td><td>Roll 2, take the lowest</td></tr>
+        <tr><td class="k">Critical Success</td><td>Maximum die value</td></tr>
+        <tr><td class="k">Critical Failure</td><td>A roll of 1</td></tr>
+      </table>
+      <p class="flavor">Roll for: investigating, moving, fighting, sneaking, climbing, interacting with the environment, using abilities, and responding to danger. Use whichever die (Survival / Combat / Expertise) fits the action.</p>
+
+      <div class="eyebrow">Health &amp; Aura</div>
+      <table class="ref">
+        <tr><td class="k">Health</td><td>Physical condition. Reaching 0 means Critical or Down.</td></tr>
+        <tr><td class="k">Aura</td><td>Trust, morale, and group synergy.</td></tr>
+        <tr><td class="k">Eat food</td><td>+1 HP (Scavenger gets +2)</td></tr>
+        <tr><td class="k">Steal rations</td><td>−Aura</td></tr>
+        <tr><td class="k">Help an ally</td><td>+Aura</td></tr>
+        <tr><td class="k">Loud mistake</td><td>−Aura</td></tr>
+      </table>
+
+      <div class="eyebrow">Encounter Flow</div>
+      <ol style="padding-left:20px;font-size:13.5px;line-height:1.9;color:var(--bone);margin:0 0 16px;">
+        <li>Players move IRL</li>
+        <li>DM converts the real location into a zone</li>
+        <li>DM places threats, clues, and NPCs</li>
+        <li>Players choose their actions</li>
+        <li>Dice are rolled</li>
+        <li>DM narrates the consequence</li>
+        <li>The world reacts dynamically</li>
+      </ol>
+
+      <div class="eyebrow">Goals</div>
+      <table class="ref">
+        <tr><td class="k">Primary</td><td>Survive · Uncover the truth behind Ashfall</td></tr>
+        <tr><td class="k">Secondary</td><td>Avoid infection · Manage resources · Navigate factions · Protect each other · Discover safe zones · Track spore spread inland</td></tr>
+        <tr><td class="k">Optional</td><td>Rescue survivors · Secure a vehicle · Build a shelter · Sabotage a faction · Recover lost tech</td></tr>
+      </table>
+
+      <div class="eyebrow">Zombie Types</div>
+      <table class="ref">
+        <tr><td class="k">Shambler</td><td>Slow. Attracted by noise.</td></tr>
+        <tr><td class="k">Runner</td><td>Fast. Aggressive bursts.</td></tr>
+        <tr><td class="k">Sporebound</td><td>Unpredictable, spore-influenced.</td></tr>
+        <tr><td class="k">Mutated</td><td>Rare, powerful, unique behavior.</td></tr>
+      </table>
+
+      <div class="eyebrow">Factions</div>
+      <table class="ref">
+        <tr><td class="k">Dockside Collective</td><td>Engineers &amp; medics seeking containment</td></tr>
+        <tr><td class="k">Greywater Crew</td><td>Smugglers seeking profit</td></tr>
+        <tr><td class="k">Ashborn</td><td>Cult seeking release</td></tr>
+        <tr><td class="k">Lost Signal</td><td>Radio operators seeking communication</td></tr>
+      </table>
+
+      <div class="eyebrow">Environmental Effects</div>
+      <table class="ref">
+        <tr><td class="k">Spores</td><td>Hallucinations, mutations, electronics failure</td></tr>
+        <tr><td class="k">Noise</td><td>Attracts undead</td></tr>
+        <tr><td class="k">Light</td><td>Reveals or hides threats</td></tr>
+        <tr><td class="k">Weather</td><td>Fog / Ashfall / Wind / Rain</td></tr>
+        <tr><td class="k">Distance</td><td>Affects threat level</td></tr>
+      </table>
+    </section>
 
   <div class="savenote" id="savenote">SAVED</div>
 
@@ -394,6 +471,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
     <button data-tab="world"><span class="ic">☣</span>World</button>
     <button data-tab="log"><span class="ic">📖</span>Log</button>
     <button data-tab="gear"><span class="ic">🎒</span>Gear</button>
+    <button data-tab="rules"><span class="ic">📜</span>Rules</button>
   </nav>
 </div>
 
@@ -813,18 +891,29 @@ function renderEncounters(){
     const el = document.createElement('div'); el.className='list-item';
     el.innerHTML = `
       <button class="del" data-i="${i}" data-arr="encounters">✕</button>
-      <div class="field-row"><label>Location</label><input type="text" value="${e.location||''}" data-i="${i}" data-f="location" data-arr="encounters"></div>
-      <div class="field-row"><label>Threat / NPC</label><input type="text" value="${e.threat||''}" data-i="${i}" data-f="threat" data-arr="encounters"></div>
+      <div class="two-col">
+        <div class="field-row"><label>Time</label><input type="text" value="${e.time||''}" data-i="${i}" data-f="time" data-arr="encounters"></div>
+        <div class="field-row"><label>Location</label><input type="text" value="${e.location||''}" data-i="${i}" data-f="location" data-arr="encounters"></div>
+      </div>
+      <div class="field-row"><label>Threat / NPC</label><input type="text" value="${e.threat||''}" data-i="${i}" data-f="threat" data-arr="encounters" placeholder="e.g. 2 Shamblers near the dumpsters"></div>
+      <div class="field-row"><label>Who Was Involved</label><input type="text" value="${e.who||''}" data-i="${i}" data-f="who" data-arr="encounters" placeholder="e.g. Lawrence, Lucho"></div>
       <div class="field-row"><label>Action Taken</label><input type="text" value="${e.action||''}" data-i="${i}" data-f="action" data-arr="encounters"></div>
       <div class="two-col">
-        <div class="field-row"><label>Roll Result</label><input type="text" value="${e.roll||''}" data-i="${i}" data-f="roll" data-arr="encounters"></div>
+        <div class="field-row"><label>Roll Result</label><input type="text" value="${e.roll||''}" data-i="${i}" data-f="roll" data-arr="encounters" placeholder="e.g. Combat d20 → 17"></div>
         <div class="field-row"><label>Outcome</label><input type="text" value="${e.outcome||''}" data-i="${i}" data-f="outcome" data-arr="encounters"></div>
       </div>`;
     c.appendChild(el);
   });
   bindListInputs();
 }
-function addEncounter(){ state.encounters.push({}); saveLog(); renderEncounters(); }
+function addEncounter(){
+  const now = new Date();
+  state.encounters.push({
+    location: state.location.real || '',
+    time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+  });
+  saveLog(); renderEncounters();
+}
 
 function renderMissions(){
   const c = document.getElementById('mission-list'); c.innerHTML='';
@@ -898,13 +987,21 @@ function addLoot(){ state.loot.push({type:'Loot'}); saveLog(); renderLoot(); }
 
 function renderInventory(){
   const c = document.getElementById('inventory-list'); c.innerHTML='';
+  const owners = ['Party (shared)', ...state.characters.map(ch=>ch.name || ch.role)];
   state.inventory.forEach((it,i)=>{
     const el = document.createElement('div'); el.className='list-item';
     el.innerHTML = `
       <button class="del" data-i="${i}" data-arr="inventory">✕</button>
-      <div class="field-row"><label>Item</label><input type="text" value="${it.item||''}" data-i="${i}" data-f="item" data-arr="inventory"></div>
       <div class="two-col">
-        <div class="field-row"><label>Owner</label><input type="text" value="${it.owner||''}" data-i="${i}" data-f="owner" data-arr="inventory"></div>
+        <div class="field-row" style="grid-column:1/2;"><label>Item</label><input type="text" value="${it.item||''}" data-i="${i}" data-f="item" data-arr="inventory"></div>
+        <div class="field-row"><label>Qty</label><input type="number" min="0" value="${it.qty!=null?it.qty:1}" data-i="${i}" data-f="qty" data-arr="inventory"></div>
+      </div>
+      <div class="two-col">
+        <div class="field-row"><label>Owner</label>
+          <select data-i="${i}" data-f="owner" data-arr="inventory">
+            ${owners.map(o=>`<option ${o===it.owner?'selected':''}>${o}</option>`).join('')}
+          </select>
+        </div>
         <div class="field-row"><label>Category</label>
           <select data-i="${i}" data-f="category" data-arr="inventory">
             ${['Weapon','Tool','Medical','Food','Special','Faction Token'].map(t=>`<option ${t===it.category?'selected':''}>${t}</option>`).join('')}
@@ -1000,3 +1097,4 @@ init();
 </script>
 </body>
 </html>
+
