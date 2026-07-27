@@ -511,10 +511,22 @@ let state = {
   },
   levels: {noise:20, spore:15},
   characters: [
-    {name:'Lawrence', role:'Hunter',    hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',abilities:'',inventory:'',notes:'', open:true},
-    {name:'Lucho',    role:'Scavenger', hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',abilities:'',inventory:'',notes:'', open:false},
-    {name:'Mireyah',  role:'Medic',     hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',abilities:'',inventory:'',notes:'', open:false},
-    {name:'Lucas',    role:'Engineer',  hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',abilities:'',inventory:'',notes:'', open:false}
+    {name:'Lawrence', role:'Hunter',    hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',
+      abilities:'Predator\'s Insight — advantage on ranged attacks against any target marked by the Wraith-Sight Scope.',
+      inventory:'Wraith-Sight Scope (signature item) — spectral-tuned scope carved from bone and obsidian. Highlights undead silhouettes through walls, fog, or darkness up to 80 ft, and marks targets with a faint glowing rune visible only to the Hunter.',
+      notes:'', open:true},
+    {name:'Lucho',    role:'Scavenger', hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',
+      abilities:'Silent Retrieval — noise-free looting, plus advantage on stealth checks while using the Ascender.',
+      inventory:'Phantom-Line Ascender (signature item) — silent magnetic grappling device that fires a near-invisible filament. Latches onto metal up to 60 ft away, retracts silently, and can pull lightweight objects toward the user.',
+      notes:'', open:false},
+    {name:'Mireyah',  role:'Medic',     hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',
+      abilities:'Crisis Stabilisation — grants temporary HP equal to proficiency bonus when the Stabiliser is used.',
+      inventory:'BioPulse Stabiliser (signature item) — wrist-mounted device emitting controlled bioelectric pulses. Can halt necrotic spread, restart a failing heartbeat, or deliver a shock strong enough to stun a zombie for one round.',
+      notes:'', open:false},
+    {name:'Lucas',    role:'Engineer',  hp:10,maxHp:10,aura:10,maxAura:10,status:'Healthy',sporeExp:'Low',
+      abilities:'Rapid Reinforcement — can integrate the Bulwark into existing terrain for extra AC bonuses.',
+      inventory:'Titanforge Deployable Bulwark (signature item) — compact cube that unfolds into a 10-ft reinforced barricade with shock-absorption plating. Emits a low-frequency hum that disrupts undead equilibrium, slowing zombies within 15 ft.',
+      notes:'', open:false}
   ],
   factions: [
     {name:'Dockside Collective', standing:'Neutral', notes:''},
@@ -526,7 +538,18 @@ let state = {
   missions:[],
   travel:[],
   loot:[],
-  inventory:[],
+  inventory:[
+    {item:'Water Purification Tabs', qty:1, owner:'Party (shared)', category:'Tool', cond:'Essential for making any found water safe.'},
+    {item:'Compact First Aid Roll', qty:1, owner:'Party (shared)', category:'Medical', cond:'Bandages, gauze, disinfectant wipes, suture thread.'},
+    {item:'Multi-Fuel Fire Starter', qty:1, owner:'Party (shared)', category:'Tool', cond:'Works with wood, scrap cloth, or chemical accelerants.'},
+    {item:'Hand-Crank Flashlight', qty:1, owner:'Party (shared)', category:'Tool', cond:'No batteries required.'},
+    {item:'Dried Rations', qty:1, owner:'Party (shared)', category:'Food', cond:'High-calorie food that lasts months.'},
+    {item:'Rope & Carabiner Set', qty:1, owner:'Party (shared)', category:'Tool', cond:'Climbing, tying, hauling supplies.'},
+    {item:'Map & Grease Pencil', qty:1, owner:'Party (shared)', category:'Special', cond:'Durable marking tool for planning routes.'},
+    {item:'Emergency Flares', qty:1, owner:'Party (shared)', category:'Special', cond:'Signalling allies or distracting zombies.'},
+    {item:'Metal Canteen', qty:1, owner:'Party (shared)', category:'Tool', cond:'Can be heated directly over fire.'},
+    {item:'Patch Kit', qty:1, owner:'Party (shared)', category:'Tool', cond:'Repairs clothing, tents, backpacks.'}
+  ],
   vehicle:{name:'',cond:8,fuel:7,notes:''}
 };
 
@@ -1097,4 +1120,3 @@ init();
 </script>
 </body>
 </html>
-
