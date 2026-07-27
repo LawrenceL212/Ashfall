@@ -193,10 +193,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   position:absolute;left:0;right:0;bottom:0;display:flex;
   background:linear-gradient(0deg,#121316,#17181b);border-top:1px solid var(--border);
   padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:10;
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
 }
 .tabbar button{
-  flex:1;background:none;border:none;color:var(--bone-dim);font-family:'JetBrains Mono',monospace;
-  font-size:9.5px;letter-spacing:1px;text-transform:uppercase;padding:6px 2px;display:flex;
+  flex:0 0 auto;min-width:56px;background:none;border:none;color:var(--bone-dim);font-family:'JetBrains Mono',monospace;
+  font-size:9.5px;letter-spacing:1px;text-transform:uppercase;padding:6px 8px;display:flex;
   flex-direction:column;align-items:center;gap:3px;
 }
 .tabbar button .ic{font-size:17px;}
@@ -210,6 +211,49 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 .savenote.show{opacity:1;}
 
 ::-webkit-scrollbar{width:0;height:0;}
+
+/* ---------- RADAR ---------- */
+.radar-wrap{display:flex;flex-direction:column;align-items:center;margin:6px 0 18px;}
+.radar-screen{
+  position:relative;width:270px;height:270px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, #0e1c10 0%, #0a0b0d 70%, #0a0b0d 100%);
+  border:1px solid var(--spore-dim);overflow:hidden;
+  box-shadow:0 0 24px rgba(124,156,92,0.08) inset;
+}
+.radar-ring{position:absolute;border:1px solid rgba(124,156,92,0.18);border-radius:50%;left:50%;top:50%;}
+.radar-sweep{
+  position:absolute;left:50%;top:50%;width:50%;height:2px;transform-origin:0 50%;
+  background:linear-gradient(90deg, rgba(124,156,92,0.35), transparent);
+  animation:sweep 4s linear infinite;
+}
+@keyframes sweep{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+.radar-me{
+  position:absolute;left:50%;top:50%;width:0;height:0;
+  border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:11px solid var(--bone);
+  transform:translate(-50%,-50%);z-index:5;filter:drop-shadow(0 0 4px rgba(233,228,214,0.6));
+}
+.blip{
+  position:absolute;left:50%;top:50%;width:10px;height:10px;border-radius:50%;
+  transform:translate(-50%,-50%);z-index:4;
+}
+.blip.shambler{background:#8a9c7e;box-shadow:0 0 6px #8a9c7e;}
+.blip.runner{background:var(--ember);box-shadow:0 0 8px var(--ember);}
+.blip.sporebound{background:var(--spore);box-shadow:0 0 8px var(--spore);animation:pulse 1.2s infinite;}
+.blip.mutated{background:#a35ad1;box-shadow:0 0 10px #a35ad1;animation:pulse .8s infinite;}
+.blip.teammate{background:var(--signal);box-shadow:0 0 6px var(--signal);border-radius:3px;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.blip-label{
+  position:absolute;font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--bone-dim);
+  white-space:nowrap;top:11px;left:50%;transform:translateX(-50%);
+}
+.radar-legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone-dim);}
+.radar-legend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+.radar-status{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--bone-dim);text-align:center;margin-top:8px;letter-spacing:.5px;}
+.zombie-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;margin-bottom:8px;}
+.zombie-row .zinfo{font-size:12.5px;}
+.zombie-row .zinfo b{color:var(--bone);}
+.zombie-row .ztag{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone-dim);}
+.zbtn{background:var(--panel2);border:1px solid var(--border);border-radius:2px;color:var(--spore);font-family:'JetBrains Mono',monospace;font-size:9.5px;padding:6px 8px;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -463,6 +507,51 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       </table>
     </section>
 
+    <!-- ===================== RADAR TAB ===================== -->
+    <section class="panel" id="panel-radar">
+      <p class="quote-block">Ashfall doesn't announce itself. It waits at the edge of what you can perceive — and some of you can perceive further than others.</p>
+
+      <div class="eyebrow">Viewing As</div>
+      <div class="card">
+        <div class="field-row">
+          <label>Character</label>
+          <select id="radar-role-select">
+            <option value="Hunter">Lawrence — Hunter (Wraith-Sight)</option>
+            <option value="Scavenger">Lucho — Scavenger</option>
+            <option value="Medic">Mireyah — Medic</option>
+            <option value="Engineer">Lucas — Engineer</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="add-btn" id="radar-enable-btn" style="color:var(--signal);">📡 Enable Location &amp; Compass</button>
+      <div class="radar-status" id="radar-status">Radar offline — tap above to activate.</div>
+
+      <div class="radar-wrap">
+        <div class="radar-screen" id="radar-screen">
+          <div class="radar-ring" style="width:25%;height:25%;transform:translate(-50%,-50%);"></div>
+          <div class="radar-ring" style="width:50%;height:50%;transform:translate(-50%,-50%);"></div>
+          <div class="radar-ring" style="width:75%;height:75%;transform:translate(-50%,-50%);"></div>
+          <div class="radar-ring" style="width:100%;height:100%;transform:translate(-50%,-50%);"></div>
+          <div class="radar-sweep"></div>
+          <div class="radar-me"></div>
+          <div id="radar-blips"></div>
+        </div>
+      </div>
+      <div class="radar-legend">
+        <span><span class="dot" style="background:#8a9c7e;"></span>Shambler</span>
+        <span><span class="dot" style="background:var(--ember);"></span>Runner</span>
+        <span><span class="dot" style="background:var(--spore);"></span>Sporebound</span>
+        <span><span class="dot" style="background:#a35ad1;"></span>Mutated (Hunter only)</span>
+        <span><span class="dot" style="background:var(--signal);border-radius:2px;"></span>Party</span>
+      </div>
+
+      <div class="eyebrow" style="margin-top:22px;">Detected Nearby</div>
+      <div id="zombie-list"></div>
+    </section>
+
+  </main>
+
   <div class="savenote" id="savenote">SAVED</div>
 
   <nav class="tabbar">
@@ -472,12 +561,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
     <button data-tab="log"><span class="ic">📖</span>Log</button>
     <button data-tab="gear"><span class="ic">🎒</span>Gear</button>
     <button data-tab="rules"><span class="ic">📜</span>Rules</button>
+    <button data-tab="radar"><span class="ic">📡</span>Radar</button>
   </nav>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, push, remove } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCr-Yk5nfOaAPSVbP0pm25ZwDN_4Uw2vls",
@@ -1114,9 +1204,263 @@ function updateHudBars(){
 }
 
 /* ============================================================
+   RADAR — real GPS zombies + live party positions
+   ============================================================ */
+const RADAR_CONFIG = {
+  Hunter:   {range:300, seesMutated:true},
+  Scavenger:{range:150, seesMutated:false},
+  Medic:    {range:150, seesMutated:false},
+  Engineer: {range:150, seesMutated:false}
+};
+const ZOMBIE_TYPES = [
+  {type:'Shambler',   weight:5},
+  {type:'Runner',     weight:3},
+  {type:'Sporebound', weight:3},
+  {type:'Mutated',    weight:1}
+];
+const SPAWN_COOLDOWN_MS = 45000;
+const MAX_ZOMBIES = 8;
+const DESPAWN_RADIUS_M = 500;
+const DESPAWN_AGE_MS = 15 * 60 * 1000;
+const TEAMMATE_STALE_MS = 90 * 1000;
+
+let radarRole = localStorage.getItem('ashfall-my-role') || 'Hunter';
+let myPos = null;      // {lat, lng}
+let myHeading = 0;     // degrees, 0 = North
+let zombies = {};      // id -> {lat,lng,type,spawnedAt}
+let teammates = {};    // role -> {lat,lng,updatedAt}
+let watchId = null;
+let lastPosWriteAt = 0;
+
+function toRad(d){ return d * Math.PI/180; }
+function toDeg(r){ return r * 180/Math.PI; }
+function haversineMeters(lat1,lng1,lat2,lng2){
+  const R=6371000;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function bearingDeg(lat1,lng1,lat2,lng2){
+  const y=Math.sin(toRad(lng2-lng1))*Math.cos(toRad(lat2));
+  const x=Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lng2-lng1));
+  return (toDeg(Math.atan2(y,x)) + 360) % 360;
+}
+function compassLabel(deg){
+  const dirs=['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg/45)%8];
+}
+function weightedRandomType(){
+  const total = ZOMBIE_TYPES.reduce((s,z)=>s+z.weight,0);
+  let r = Math.random()*total;
+  for(const z of ZOMBIE_TYPES){ if(r<z.weight) return z.type; r-=z.weight; }
+  return 'Shambler';
+}
+function setRadarStatus(msg){ document.getElementById('radar-status').textContent = msg; }
+
+function initRadarUI(){
+  const sel = document.getElementById('radar-role-select');
+  sel.value = radarRole;
+  sel.addEventListener('change', ()=>{
+    radarRole = sel.value;
+    localStorage.setItem('ashfall-my-role', radarRole);
+    renderRadar(); renderZombieList();
+  });
+  document.getElementById('radar-enable-btn').addEventListener('click', enableRadar);
+
+  onValue(ref(db,'ashfall-zombies'), snap=>{
+    zombies = snap.exists() ? snap.val() : {};
+    renderRadar(); renderZombieList();
+  });
+  onValue(ref(db,'ashfall-live-positions'), snap=>{
+    teammates = snap.exists() ? snap.val() : {};
+    renderRadar();
+  });
+}
+
+function enableRadar(){
+  setRadarStatus('Requesting permissions...');
+  // iOS 13+ requires an explicit, gesture-triggered permission request for compass
+  if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    DeviceOrientationEvent.requestPermission().then(res=>{
+      if(res === 'granted') startCompass();
+      else setRadarStatus('Compass denied — radar will use fixed North-up.');
+    }).catch(()=> setRadarStatus('Compass unavailable — using fixed North-up.'));
+  } else {
+    startCompass();
+  }
+  startGeolocation();
+}
+
+function startCompass(){
+  const handler = (e)=>{
+    let heading;
+    if(typeof e.webkitCompassHeading === 'number') heading = e.webkitCompassHeading;
+    else if(e.alpha != null) heading = (360 - e.alpha) % 360;
+    else return;
+    myHeading = heading;
+    renderRadar();
+  };
+  window.addEventListener('deviceorientationabsolute', handler, true);
+  window.addEventListener('deviceorientation', handler, true);
+}
+
+function startGeolocation(){
+  if(!navigator.geolocation){ setRadarStatus('Geolocation not supported on this browser.'); return; }
+  if(watchId) navigator.geolocation.clearWatch(watchId);
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    myPos = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+    setRadarStatus(`Tracking — ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`);
+    maybeWritePosition();
+    maybeSpawn();
+    maybeDespawn();
+    renderRadar();
+    renderZombieList();
+  }, err=>{
+    if(err.code === 1) setRadarStatus('Location permission denied — enable it in Settings.');
+    else setRadarStatus('Could not get location. Retrying...');
+  }, {enableHighAccuracy:true, maximumAge:3000, timeout:15000});
+}
+
+function maybeWritePosition(){
+  const now = Date.now();
+  if(now - lastPosWriteAt < 6000) return;
+  lastPosWriteAt = now;
+  set(ref(db, `ashfall-live-positions/${radarRole}`), {lat:myPos.lat, lng:myPos.lng, updatedAt:now}).catch(()=>{});
+}
+
+let spawnLock = false;
+async function maybeSpawn(){
+  if(!myPos || spawnLock) return;
+  spawnLock = true;
+  try{
+    const metaSnap = await get(ref(db,'ashfall-zombies-meta/lastSpawn'));
+    const lastSpawn = metaSnap.exists() ? metaSnap.val() : 0;
+    const count = Object.keys(zombies).length;
+    if(Date.now() - lastSpawn > SPAWN_COOLDOWN_MS && count < MAX_ZOMBIES){
+      await set(ref(db,'ashfall-zombies-meta/lastSpawn'), Date.now());
+      const spawnCount = 1 + Math.floor(Math.random()*2);
+      for(let i=0;i<spawnCount;i++){
+        const dist = 40 + Math.random()*180;
+        const brg = Math.random()*360;
+        const dLat = (dist * Math.cos(toRad(brg))) / 111320;
+        const dLng = (dist * Math.sin(toRad(brg))) / (111320 * Math.cos(toRad(myPos.lat)));
+        const newRef = push(ref(db,'ashfall-zombies'));
+        await set(newRef, {lat: myPos.lat+dLat, lng: myPos.lng+dLng, type: weightedRandomType(), spawnedAt: Date.now()});
+      }
+    }
+  }catch(e){ /* best effort */ }
+  spawnLock = false;
+}
+
+function maybeDespawn(){
+  if(!myPos) return;
+  Object.entries(zombies).forEach(([id,z])=>{
+    const d = haversineMeters(myPos.lat, myPos.lng, z.lat, z.lng);
+    const age = Date.now() - (z.spawnedAt||0);
+    if(d > DESPAWN_RADIUS_M || age > DESPAWN_AGE_MS){
+      remove(ref(db,`ashfall-zombies/${id}`)).catch(()=>{});
+    }
+  });
+}
+
+function visibleZombies(){
+  if(!myPos) return [];
+  const cfg = RADAR_CONFIG[radarRole];
+  return Object.entries(zombies).map(([id,z])=>{
+    const dist = haversineMeters(myPos.lat, myPos.lng, z.lat, z.lng);
+    const brg = bearingDeg(myPos.lat, myPos.lng, z.lat, z.lng);
+    return {id, ...z, dist, brg};
+  }).filter(z => z.dist <= cfg.range && (z.type !== 'Mutated' || cfg.seesMutated))
+    .sort((a,b)=>a.dist-b.dist);
+}
+
+function visibleTeammates(){
+  if(!myPos) return [];
+  const now = Date.now();
+  return Object.entries(teammates)
+    .filter(([role,t]) => role !== radarRole && t && (now - (t.updatedAt||0) < TEAMMATE_STALE_MS))
+    .map(([role,t])=>{
+      const dist = haversineMeters(myPos.lat, myPos.lng, t.lat, t.lng);
+      const brg = bearingDeg(myPos.lat, myPos.lng, t.lat, t.lng);
+      return {role, dist, brg};
+    });
+}
+
+function renderRadar(){
+  const layer = document.getElementById('radar-blips');
+  layer.innerHTML = '';
+  if(!myPos) return;
+  const cfg = RADAR_CONFIG[radarRole];
+  const radiusPx = 128; // half of 270 - a little margin
+  const place = (brg, dist, range, cls, label)=>{
+    const rel = ((brg - myHeading) % 360 + 360) % 360;
+    const rad = toRad(rel);
+    const r = Math.min(1, dist/range) * radiusPx;
+    const x = r * Math.sin(rad);
+    const y = -r * Math.cos(rad);
+    const el = document.createElement('div');
+    el.className = 'blip ' + cls;
+    el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+    if(label){
+      const lb = document.createElement('div');
+      lb.className='blip-label'; lb.textContent = label;
+      el.appendChild(lb);
+    }
+    layer.appendChild(el);
+  };
+  visibleZombies().forEach(z=> place(z.brg, z.dist, cfg.range, z.type.toLowerCase(), Math.round(z.dist)+'m'));
+  visibleTeammates().forEach(t=> place(t.brg, t.dist, cfg.range, 'teammate', t.role));
+}
+
+function renderZombieList(){
+  const c = document.getElementById('zombie-list');
+  c.innerHTML = '';
+  if(!myPos){
+    c.innerHTML = '<p class="flavor">Enable location to start detecting threats near you.</p>';
+    return;
+  }
+  const zs = visibleZombies();
+  if(zs.length === 0){
+    c.innerHTML = '<p class="flavor">Nothing in range right now. Keep moving.</p>';
+    return;
+  }
+  zs.forEach(z=>{
+    const row = document.createElement('div');
+    row.className = 'zombie-row';
+    row.innerHTML = `
+      <div class="zinfo"><b>${z.type}</b><br><span class="ztag">${Math.round(z.dist)}m · ${compassLabel(z.brg)}</span></div>
+      <button class="zbtn" data-zid="${z.id}">Log &amp; Clear</button>`;
+    c.appendChild(row);
+  });
+  c.querySelectorAll('[data-zid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const z = zombies[btn.dataset.zid];
+      if(z){
+        state.encounters.push({
+          location: state.location.real || '',
+          time: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+          threat: z.type,
+          who: radarRole
+        });
+        saveLog();
+      }
+      remove(ref(db, `ashfall-zombies/${btn.dataset.zid}`)).catch(()=>{});
+    });
+  });
+}
+
+/* ============================================================
    GO
    ============================================================ */
+window.addEncounter = addEncounter;
+window.addMission = addMission;
+window.addTravel = addTravel;
+window.addLoot = addLoot;
+window.addInventory = addInventory;
+
+initRadarUI();
 init();
 </script>
 </body>
 </html>
+
