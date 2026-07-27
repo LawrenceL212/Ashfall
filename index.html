@@ -397,7 +397,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   </nav>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCr-Yk5nfOaAPSVbP0pm25ZwDN_4Uw2vls",
+  authDomain: "ashfall-7b2ce.firebaseapp.com",
+  databaseURL: "https://ashfall-7b2ce-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "ashfall-7b2ce",
+  storageBucket: "ashfall-7b2ce.firebasestorage.app",
+  messagingSenderId: "33929444878",
+  appId: "1:33929444878:web:a83849f8cb34ff10ab065f",
+  measurementId: "G-0L5Q39M702"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+
 /* ============================================================
    STATE
    ============================================================ */
@@ -437,9 +453,8 @@ let state = {
 };
 
 /* ============================================================
-   STORAGE HELPERS
+   FIREBASE STORAGE HELPERS
    ============================================================ */
-let saveTimer=null;
 function flagSaved(){
   const n=document.getElementById('savenote');
   n.classList.add('show');
@@ -448,33 +463,36 @@ function flagSaved(){
 }
 async function saveKey(key,value){
   try{
-    await window.storage.set(key, JSON.stringify(value), true);
+    await set(ref(db, key), value);
     flagSaved();
   }catch(e){ console.error('save failed',key,e); }
 }
-async function loadKey(key,fallback){
+async function loadKeyOnce(key,fallback){
   try{
-    const r = await window.storage.get(key,true);
-    if(r && r.value) return JSON.parse(r.value);
-    return fallback;
+    const snap = await get(ref(db, key));
+    return snap.exists() ? snap.val() : fallback;
   }catch(e){ return fallback; }
 }
-function debSave(key,getter,delay=500){
-  clearTimeout(debSave._t?.[key]);
-  debSave._t = debSave._t||{};
-  debSave._t[key]=setTimeout(()=>saveKey(key,getter()),delay);
+let debTimers = {};
+function debSave(key,getter,delay=400){
+  clearTimeout(debTimers[key]);
+  debTimers[key]=setTimeout(()=>saveKey(key,getter()),delay);
+}
+function isTyping(){
+  const el = document.activeElement;
+  return el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName);
 }
 
 /* ============================================================
-   INIT / LOAD
+   INIT / LOAD + REAL-TIME LISTENERS
    ============================================================ */
 async function init(){
   const [home,party,world,log,gear] = await Promise.all([
-    loadKey('ashfall-home', {location:state.location, goals:state.goals}),
-    loadKey('ashfall-party', {characters:state.characters}),
-    loadKey('ashfall-world', {factions:state.factions}),
-    loadKey('ashfall-log', {encounters:[],missions:[],travel:[],loot:[]}),
-    loadKey('ashfall-gear', {inventory:[],vehicle:state.vehicle,levels:state.levels})
+    loadKeyOnce('ashfall-home', {location:state.location, goals:state.goals}),
+    loadKeyOnce('ashfall-party', {characters:state.characters}),
+    loadKeyOnce('ashfall-world', {factions:state.factions}),
+    loadKeyOnce('ashfall-log', {encounters:[],missions:[],travel:[],loot:[]}),
+    loadKeyOnce('ashfall-gear', {inventory:[],vehicle:state.vehicle,levels:state.levels})
   ]);
   state.location = home.location || state.location;
   state.goals = home.goals || state.goals;
@@ -487,6 +505,13 @@ async function init(){
   state.inventory = gear.inventory || [];
   state.vehicle = gear.vehicle || state.vehicle;
   state.levels = gear.levels || state.levels;
+
+  // if the database is empty (first ever run), seed it with our defaults
+  saveKey('ashfall-home', {location:state.location, goals:state.goals});
+  saveKey('ashfall-party', {characters:state.characters});
+  saveKey('ashfall-world', {factions:state.factions});
+  saveKey('ashfall-log', {encounters:state.encounters,missions:state.missions,travel:state.travel,loot:state.loot});
+  saveKey('ashfall-gear', {inventory:state.inventory,vehicle:state.vehicle,levels:state.levels});
 
   renderLocation();
   renderGoals();
@@ -502,6 +527,56 @@ async function init(){
   bindLocationInputs();
   bindVehicleInputs();
   bindLevelSliders();
+
+  attachLiveListeners();
+}
+
+/* Real-time: whenever ANY player changes a section, every other phone gets
+   pushed the update instantly (no polling, no delay). We skip re-rendering
+   a panel while the local user is actively typing so we don't yank a field
+   out from under them mid-edit. */
+let firstFire = {home:true, party:true, world:true, log:true, gear:true};
+function attachLiveListeners(){
+  onValue(ref(db,'ashfall-home'), snap=>{
+    if(firstFire.home){ firstFire.home=false; return; }
+    if(!snap.exists() || isTyping()) return;
+    const v = snap.val();
+    state.location = v.location || state.location;
+    state.goals = v.goals || state.goals;
+    renderLocation(); renderGoals();
+  });
+  onValue(ref(db,'ashfall-party'), snap=>{
+    if(firstFire.party){ firstFire.party=false; return; }
+    if(!snap.exists() || isTyping()) return;
+    const openMap = state.characters.map(c=>c.open);
+    state.characters = (snap.val().characters || state.characters).map((c,i)=>({...c, open: openMap[i]}));
+    renderParty();
+  });
+  onValue(ref(db,'ashfall-world'), snap=>{
+    if(firstFire.world){ firstFire.world=false; return; }
+    if(!snap.exists() || isTyping()) return;
+    state.factions = snap.val().factions || state.factions;
+    renderFactions();
+  });
+  onValue(ref(db,'ashfall-log'), snap=>{
+    if(firstFire.log){ firstFire.log=false; return; }
+    if(!snap.exists() || isTyping()) return;
+    const v = snap.val();
+    state.encounters = v.encounters || [];
+    state.missions = v.missions || [];
+    state.travel = v.travel || [];
+    state.loot = v.loot || [];
+    renderEncounters(); renderMissions(); renderTravel(); renderLoot();
+  });
+  onValue(ref(db,'ashfall-gear'), snap=>{
+    if(firstFire.gear){ firstFire.gear=false; return; }
+    if(!snap.exists() || isTyping()) return;
+    const v = snap.val();
+    state.inventory = v.inventory || [];
+    state.vehicle = v.vehicle || state.vehicle;
+    state.levels = v.levels || state.levels;
+    renderInventory(); renderVehicle(); renderLevels();
+  });
 }
 
 function saveHome(){ debSave('ashfall-home', ()=>({location:state.location, goals:state.goals})); }
@@ -917,50 +992,6 @@ function updateHudBars(){
   document.getElementById('sporeLabel').textContent = levelLabel(s);
   document.getElementById('sporeFill').classList.toggle('glitch', s>=50);
 }
-
-/* ============================================================
-   LIVE SYNC — periodically pull latest shared data from other players
-   ============================================================ */
-function isTyping(){
-  const el = document.activeElement;
-  return el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName);
-}
-async function refreshFromServer(){
-  if(isTyping()) return; // don't yank the field out from under someone mid-edit
-  const [home,party,world,log,gear] = await Promise.all([
-    loadKey('ashfall-home', {location:state.location, goals:state.goals}),
-    loadKey('ashfall-party', {characters:state.characters}),
-    loadKey('ashfall-world', {factions:state.factions}),
-    loadKey('ashfall-log', {encounters:state.encounters,missions:state.missions,travel:state.travel,loot:state.loot}),
-    loadKey('ashfall-gear', {inventory:state.inventory,vehicle:state.vehicle,levels:state.levels})
-  ]);
-  // preserve local UI-only state (which character card is expanded)
-  const openMap = state.characters.map(c=>c.open);
-  state.location = home.location || state.location;
-  state.goals = home.goals || state.goals;
-  state.characters = (party.characters || state.characters).map((c,i)=>({...c, open: openMap[i]}));
-  state.factions = world.factions || state.factions;
-  state.encounters = log.encounters || [];
-  state.missions = log.missions || [];
-  state.travel = log.travel || [];
-  state.loot = log.loot || [];
-  state.inventory = gear.inventory || [];
-  state.vehicle = gear.vehicle || state.vehicle;
-  state.levels = gear.levels || state.levels;
-
-  renderLocation();
-  renderGoals();
-  renderParty();
-  renderFactions();
-  renderEncounters();
-  renderMissions();
-  renderTravel();
-  renderLoot();
-  renderInventory();
-  renderVehicle();
-  renderLevels();
-}
-setInterval(refreshFromServer, 7000);
 
 /* ============================================================
    GO
