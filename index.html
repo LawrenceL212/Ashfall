@@ -6,6 +6,8 @@
 <title>ASHFALL // Survival HUD</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{
   --bg:#121316;
@@ -141,6 +143,7 @@ select{appearance:none;-webkit-appearance:none;background-image:linear-gradient(
 .char-body{overflow:hidden;max-height:0;transition:max-height .3s ease;}
 .char-body.open{max-height:900px;}
 .char-body-inner{padding-top:10px;}
+.ability-box{margin:4px 0 10px;}
 
 .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;}
 .status-Healthy{background:var(--spore);}
@@ -301,10 +304,44 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   animation:staticflash .6s steps(2) 2;
 }
 @keyframes staticflash{0%{opacity:0;}20%{opacity:.9;}40%{opacity:.1;}60%{opacity:.7;}100%{opacity:0;}}
+#app.damage-flash::after{
+  content:"";position:absolute;inset:0;z-index:60;pointer-events:none;
+  background:rgba(163,54,54,0.4);animation:dmgflash .5s ease;
+}
+@keyframes dmgflash{0%{opacity:1;}100%{opacity:0;}}
+.threat-toast{
+  position:absolute;top:52px;left:10px;right:10px;z-index:70;
+  background:rgba(163,54,54,0.95);border:1px solid var(--ember);border-radius:4px;
+  padding:11px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--bone);
+  text-align:center;letter-spacing:.3px;transform:translateY(-140%);transition:transform .35s ease;
+  box-shadow:0 4px 18px rgba(0,0,0,0.5);
+}
+.threat-toast.show{transform:translateY(0);}
+
+/* ---------- MAP VIEW ---------- */
+.view-toggle{display:flex;gap:8px;margin-bottom:12px;}
+.view-toggle button{
+  flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:2px;color:var(--bone-dim);
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:9px 6px;
+}
+.view-toggle button.active{color:var(--spore);border-color:var(--spore);}
+#radar-map{width:100%;height:300px;border-radius:6px;border:1px solid var(--border);overflow:hidden;margin-bottom:6px;filter:saturate(0.35) brightness(0.75) contrast(1.1);display:none;}
+.leaflet-container{background:#0a0b0d !important;}
+.map-pin{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:12px;box-shadow:0 0 6px rgba(0,0,0,0.6);}
+.map-pin.me{background:var(--bone);border:2px solid var(--bg);}
+.map-pin.teammate{background:var(--signal);}
+.map-pin.shambler{background:#8a9c7e;}
+.map-pin.runner{background:var(--ember);}
+.map-pin.sporebound{background:var(--spore);}
+.map-pin.mutated{background:#a35ad1;}
+.map-pin.loot{background:var(--signal);border-radius:3px;}
+.blip.loot{background:var(--signal);border-radius:3px;transform-origin:center;box-shadow:0 0 6px var(--signal);}
+
 </style>
 </head>
 <body>
 <div id="app">
+  <div class="threat-toast" id="threat-toast"></div>
 
   <header class="hud">
     <div class="hud-title"><span class="glyph">☣</span>ASHFALL</div>
@@ -574,6 +611,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       <button class="add-btn" id="radar-enable-btn" style="color:var(--signal);">📡 Enable Location &amp; Compass</button>
       <div class="radar-status" id="radar-status">Radar offline — tap above to activate.</div>
 
+      <div class="view-toggle">
+        <button id="view-radar-btn" class="active">📡 Radar</button>
+        <button id="view-map-btn">🗺️ Map</button>
+      </div>
+
+      <div id="radar-map"></div>
+
       <div class="radar-wrap">
         <div class="radar-screen" id="radar-screen">
           <div class="radar-ring" style="width:25%;height:25%;transform:translate(-50%,-50%);"></div>
@@ -591,10 +635,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
         <span><span class="dot" style="background:var(--spore);"></span>Sporebound</span>
         <span><span class="dot" style="background:#a35ad1;"></span>Mutated (Hunter only)</span>
         <span><span class="dot" style="background:var(--signal);border-radius:2px;"></span>Party</span>
+        <span><span class="dot" style="background:var(--signal);border-radius:2px;"></span>Loot</span>
       </div>
 
       <div class="eyebrow" style="margin-top:22px;">Detected Nearby</div>
       <div id="zombie-list"></div>
+
+      <div class="eyebrow" style="margin-top:22px;">Nearby Loot</div>
+      <p class="flavor">Scavengers spot loot from twice the distance everyone else does.</p>
+      <div id="loot-drop-list"></div>
     </section>
 
     <!-- ===================== DM TAB ===================== -->
@@ -1006,6 +1055,8 @@ function renderParty(){
             </div>
           </div>
           <div class="field-row"><label>Abilities</label><textarea data-field="abilities" data-i="${i}" placeholder="Unique abilities...">${ch.abilities}</textarea></div>
+          <div class="eyebrow" style="margin-top:6px;">Signature Ability</div>
+          <div class="ability-box" id="ability-box-${i}"></div>
           <div class="field-row"><label>Inventory</label><textarea data-field="inventory" data-i="${i}" placeholder="Weapons, tools, supplies...">${ch.inventory}</textarea></div>
           <div class="field-row"><label>Notes</label><textarea data-field="notes" data-i="${i}" placeholder="Anything else...">${ch.notes}</textarea></div>
         </div>
@@ -1037,6 +1088,7 @@ function renderParty(){
       saveParty();
     });
   });
+  state.characters.forEach((ch,i)=> renderAbilityBox(i));
 }
 
 /* ============================================================
@@ -1300,11 +1352,40 @@ const DESPAWN_RADIUS_M = 500;
 const DESPAWN_AGE_MS = 15 * 60 * 1000;
 const TEAMMATE_STALE_MS = 90 * 1000;
 
+const LOOT_POOL = [
+  {item:'Ration Tin',              category:'Food',    weight:5},
+  {item:'Bandage Roll',            category:'Medical', weight:5},
+  {item:'Scrap Metal',             category:'Tool',    weight:4},
+  {item:'Fuel Canister',           category:'Tool',    weight:3},
+  {item:'Faction Radio Chatter Log', category:'Special', weight:2},
+  {item:'Sealed Ammo Box',         category:'Weapon',  weight:2},
+  {item:'Old Photograph (clue)',   category:'Special', weight:1},
+  {item:'Spore-Resistant Filter',  category:'Special', weight:1}
+];
+const LOOT_RANGE_M = 150;          // base detection range for finding loot
+const LOOT_PICKUP_RANGE_M = 15;
+const LOOT_SPAWN_COOLDOWN_MS = 60000;
+const MAX_LOOT = 6;
+const LOOT_DESPAWN_AGE_MS = 30 * 60 * 1000;
+function weightedRandomLoot(){
+  const total = LOOT_POOL.reduce((s,l)=>s+l.weight,0);
+  let r = Math.random()*total;
+  for(const l of LOOT_POOL){ if(r<l.weight) return l; r-=l.weight; }
+  return LOOT_POOL[0];
+}
+function lootRangeFor(role){ return role==='Scavenger' ? LOOT_RANGE_M*2 : LOOT_RANGE_M; }
+
 let radarRole = localStorage.getItem('ashfall-my-role') || 'Hunter';
+const DEVICE_ID = (function(){
+  let id = localStorage.getItem('ashfall-device-id');
+  if(!id){ id = 'dev-' + Math.random().toString(36).slice(2,10); localStorage.setItem('ashfall-device-id', id); }
+  return id;
+})();
 let myPos = null;      // {lat, lng}
 let myHeading = 0;     // degrees, 0 = North
 let zombies = {};      // id -> {lat,lng,type,spawnedAt}
 let teammates = {};    // role -> {lat,lng,updatedAt}
+let loot = {};          // id -> {lat,lng,item,category,spawnedAt}
 let watchId = null;
 let lastPosWriteAt = 0;
 
@@ -1339,21 +1420,54 @@ function initRadarUI(){
   sel.addEventListener('change', ()=>{
     radarRole = sel.value;
     localStorage.setItem('ashfall-my-role', radarRole);
-    renderRadar(); renderZombieList();
+    renderRadar(); renderZombieList(); renderLootList(); updateMapMarkers();
   });
   document.getElementById('radar-enable-btn').addEventListener('click', enableRadar);
+  document.getElementById('view-radar-btn').addEventListener('click', ()=>switchRadarView('radar'));
+  document.getElementById('view-map-btn').addEventListener('click', ()=>switchRadarView('map'));
 
   onValue(ref(db,'ashfall-zombies'), snap=>{
     zombies = snap.exists() ? snap.val() : {};
-    renderRadar(); renderZombieList();
+    renderRadar(); renderZombieList(); updateMapMarkers();
   });
   onValue(ref(db,'ashfall-live-positions'), snap=>{
     teammates = snap.exists() ? snap.val() : {};
-    renderRadar();
+    renderRadar(); updateMapMarkers();
+  });
+  onValue(ref(db,'ashfall-loot-drops'), snap=>{
+    loot = snap.exists() ? snap.val() : {};
+    renderRadar(); renderLootList(); updateMapMarkers();
+  });
+  onValue(ref(db,'ashfall-abilities'), snap=>{
+    abilityState = snap.exists() ? snap.val() : {};
+    renderParty();
+  });
+  onValue(ref(db,'ashfall-bulwarks'), snap=>{
+    bulwarks = snap.exists() ? snap.val() : {};
   });
 }
 
+function switchRadarView(which){
+  const radarBtn = document.getElementById('view-radar-btn');
+  const mapBtn = document.getElementById('view-map-btn');
+  const radarWrap = document.querySelector('.radar-wrap');
+  const mapDiv = document.getElementById('radar-map');
+  if(which==='map'){
+    radarBtn.classList.remove('active'); mapBtn.classList.add('active');
+    radarWrap.style.display='none'; mapDiv.style.display='block';
+    initLeafletMap();
+  } else {
+    mapBtn.classList.remove('active'); radarBtn.classList.add('active');
+    radarWrap.style.display='flex'; mapDiv.style.display='none';
+  }
+}
+
 function enableRadar(){
+  if(!localStorage.getItem('ashfall-my-role-confirmed')){
+    const ok = confirm(`You're about to broadcast your live position as: ${radarRole}.\n\nIs this YOUR character? Tap Cancel first if you need to change "Viewing As" above.`);
+    if(!ok) return;
+    localStorage.setItem('ashfall-my-role-confirmed', '1');
+  }
   setRadarStatus('Requesting permissions...');
   // iOS 13+ requires an explicit, gesture-triggered permission request for compass
   if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
@@ -1365,6 +1479,8 @@ function enableRadar(){
     startCompass();
   }
   startGeolocation();
+  if(zombieTickInterval) clearInterval(zombieTickInterval);
+  zombieTickInterval = setInterval(tickZombies, TICK_MS);
 }
 
 function startCompass(){
@@ -1389,19 +1505,36 @@ function startGeolocation(){
     maybeWritePosition();
     maybeSpawn();
     maybeDespawn();
+    maybeSpawnLoot();
+    maybeDespawnLoot();
     renderRadar();
     renderZombieList();
+    renderLootList();
+    updateMapMarkers();
   }, err=>{
     if(err.code === 1) setRadarStatus('Location permission denied — enable it in Settings.');
     else setRadarStatus('Could not get location. Retrying...');
   }, {enableHighAccuracy:true, maximumAge:3000, timeout:15000});
 }
 
-function maybeWritePosition(){
+let lastRoleConflictWarn = 0;
+async function maybeWritePosition(){
   const now = Date.now();
   if(now - lastPosWriteAt < 6000) return;
   lastPosWriteAt = now;
-  set(ref(db, `ashfall-live-positions/${radarRole}`), {lat:myPos.lat, lng:myPos.lng, updatedAt:now}).catch(()=>{});
+  try{
+    const snap = await get(ref(db, `ashfall-live-positions/${radarRole}`));
+    const existing = snap.exists() ? snap.val() : null;
+    const heldByOther = existing && existing.deviceId && existing.deviceId !== DEVICE_ID && (now - (existing.updatedAt||0) < 20000);
+    if(heldByOther){
+      if(now - lastRoleConflictWarn > 20000){
+        lastRoleConflictWarn = now;
+        showThreatToast(`⚠️ Someone else is already broadcasting as ${radarRole}. Switch "Viewing As" to your own character.`);
+      }
+      return; // don't overwrite the other device's position
+    }
+    set(ref(db, `ashfall-live-positions/${radarRole}`), {lat:myPos.lat, lng:myPos.lng, updatedAt:now, deviceId:DEVICE_ID}).catch(()=>{});
+  }catch(e){ /* best effort */ }
 }
 
 let spawnLock = false;
@@ -1430,13 +1563,207 @@ async function maybeSpawn(){
 
 function maybeDespawn(){
   if(!myPos) return;
+  const players = getAllKnownPositions();
   Object.entries(zombies).forEach(([id,z])=>{
-    const d = haversineMeters(myPos.lat, myPos.lng, z.lat, z.lng);
+    // check distance from whichever party member is closest, not just this device —
+    // otherwise a phone far from the action will delete zombies that are still right next to someone else
+    const distances = players.map(p => haversineMeters(p.lat, p.lng, z.lat, z.lng));
+    const nearestDist = distances.length ? Math.min(...distances) : haversineMeters(myPos.lat, myPos.lng, z.lat, z.lng);
     const age = Date.now() - (z.spawnedAt||0);
-    if(d > DESPAWN_RADIUS_M || age > DESPAWN_AGE_MS){
+    if(nearestDist > DESPAWN_RADIUS_M || age > DESPAWN_AGE_MS){
       remove(ref(db,`ashfall-zombies/${id}`)).catch(()=>{});
     }
   });
+}
+
+/* ---------- LOOT DROPS ---------- */
+let lootSpawnLock = false;
+async function maybeSpawnLoot(){
+  if(!myPos || lootSpawnLock) return;
+  lootSpawnLock = true;
+  try{
+    const metaSnap = await get(ref(db,'ashfall-loot-meta/lastSpawn'));
+    const lastSpawn = metaSnap.exists() ? metaSnap.val() : 0;
+    const count = Object.keys(loot).length;
+    if(Date.now() - lastSpawn > LOOT_SPAWN_COOLDOWN_MS && count < MAX_LOOT){
+      await set(ref(db,'ashfall-loot-meta/lastSpawn'), Date.now());
+      const dist = 30 + Math.random()*150;
+      const brg = Math.random()*360;
+      const pos = movePoint(myPos.lat, myPos.lng, brg, dist);
+      const pick = weightedRandomLoot();
+      const newRef = push(ref(db,'ashfall-loot-drops'));
+      await set(newRef, {lat:pos.lat, lng:pos.lng, item:pick.item, category:pick.category, spawnedAt:Date.now()});
+    }
+  }catch(e){}
+  lootSpawnLock = false;
+}
+function maybeDespawnLoot(){
+  if(!myPos) return;
+  const players = getAllKnownPositions();
+  Object.entries(loot).forEach(([id,l])=>{
+    const distances = players.map(p => haversineMeters(p.lat, p.lng, l.lat, l.lng));
+    const nearestDist = distances.length ? Math.min(...distances) : Infinity;
+    const age = Date.now() - (l.spawnedAt||0);
+    if(nearestDist > DESPAWN_RADIUS_M || age > LOOT_DESPAWN_AGE_MS){
+      remove(ref(db,`ashfall-loot-drops/${id}`)).catch(()=>{});
+    }
+  });
+}
+function visibleLoot(){
+  if(!myPos) return [];
+  const range = lootRangeFor(radarRole);
+  return Object.entries(loot).map(([id,l])=>{
+    const dist = haversineMeters(myPos.lat, myPos.lng, l.lat, l.lng);
+    const brg = bearingDeg(myPos.lat, myPos.lng, l.lat, l.lng);
+    return {id, ...l, dist, brg};
+  }).filter(l=>l.dist <= range).sort((a,b)=>a.dist-b.dist);
+}
+function pickUpLoot(id){
+  const l = loot[id];
+  if(!l) return;
+  const ch = state.characters.find(c=>c.role===radarRole);
+  state.inventory.push({item:l.item, qty:1, owner: ch ? (ch.name||ch.role) : 'Party (shared)', category:l.category, cond:'Found in the field'});
+  saveGear(); renderInventory();
+  remove(ref(db,`ashfall-loot-drops/${id}`)).catch(()=>{});
+  showThreatToast(`✅ Picked up: ${l.item}`);
+}
+function renderLootList(){
+  const c = document.getElementById('loot-drop-list');
+  if(!c) return;
+  c.innerHTML = '';
+  if(!myPos){ c.innerHTML = '<p class="flavor">Enable location to start detecting loot near you.</p>'; return; }
+  const ls = visibleLoot();
+  if(ls.length===0){ c.innerHTML = '<p class="flavor">Nothing found nearby yet. Keep exploring.</p>'; return; }
+  ls.forEach(l=>{
+    const row = document.createElement('div');
+    row.className = 'zombie-row';
+    const canPickup = l.dist <= LOOT_PICKUP_RANGE_M;
+    row.innerHTML = `
+      <div class="zinfo"><b>${l.item}</b><br><span class="ztag">${l.category} · ${Math.round(l.dist)}m · ${compassLabel(l.brg)}</span></div>
+      <button class="zbtn" data-lid="${l.id}" ${canPickup?'':'disabled style="opacity:.4;"'}>${canPickup ? 'Pick Up' : 'Too far'}</button>`;
+    c.appendChild(row);
+  });
+  c.querySelectorAll('[data-lid]').forEach(btn=>{
+    btn.addEventListener('click', ()=> pickUpLoot(btn.dataset.lid));
+  });
+}
+
+/* ---------- AGGRESSION: zombies chase the nearest player, and hurt you if they close the gap ---------- */
+const AGGRO_RANGE_M = 200;
+const WARNING_RANGE_M = 60;
+const WARNING_COOLDOWN_MS = 15000;
+const DAMAGE_RANGE_M = 12;
+const DAMAGE_COOLDOWN_MS = 8000;
+const TICK_MS = 5000;
+const DAMAGE_BY_TYPE = {Shambler:1, Runner:2, Sporebound:2, Mutated:3};
+let zombieTickInterval = null;
+let damageLog = {};
+let warnLog = {};
+
+let toastTimer = null;
+function showThreatToast(msg){
+  const el = document.getElementById('threat-toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> el.classList.remove('show'), 4200);
+}
+
+function movePoint(lat,lng,bearingDegVal,distMeters){
+  const dLat = (distMeters * Math.cos(toRad(bearingDegVal))) / 111320;
+  const dLng = (distMeters * Math.sin(toRad(bearingDegVal))) / (111320 * Math.cos(toRad(lat)));
+  return {lat: lat+dLat, lng: lng+dLng};
+}
+function stepForType(type){
+  switch(type){
+    case 'Shambler':   return {dist:3,  erraticChance:0};
+    case 'Runner':     return {dist: Math.random()<0.3 ? 22 : 3, erraticChance:0}; // aggressive bursts
+    case 'Sporebound': return {dist:6,  erraticChance:0.5}; // unpredictable path
+    case 'Mutated':    return {dist:10, erraticChance:0};
+    default:           return {dist:3,  erraticChance:0};
+  }
+}
+function getAllKnownPositions(){
+  const arr = [];
+  if(myPos) arr.push({role:radarRole, lat:myPos.lat, lng:myPos.lng});
+  Object.entries(teammates).forEach(([role,t])=>{
+    if(role!==radarRole && t && t.lat!=null) arr.push({role, lat:t.lat, lng:t.lng});
+  });
+  return arr;
+}
+function flashDamage(){
+  const app = document.getElementById('app');
+  app.classList.add('damage-flash');
+  setTimeout(()=>app.classList.remove('damage-flash'), 500);
+}
+function applyZombieDamage(type){
+  const dmg = DAMAGE_BY_TYPE[type] || 1;
+  const ch = state.characters.find(c=>c.role===radarRole);
+  if(!ch) return;
+  ch.hp = Math.max(0, ch.hp - dmg);
+  if(ch.hp===0) ch.status='Down';
+  else if(ch.hp <= 3) ch.status='Critical';
+  else if(ch.hp < ch.maxHp) ch.status='Injured';
+  saveParty(); renderParty();
+  flashDamage();
+  if(typeof ambientOn !== 'undefined' && ambientOn) playHeartbeat();
+  state.encounters.push({
+    location: state.location.real || '',
+    time: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    threat: type, who: radarRole, action:'Caught off guard', outcome:`Took ${dmg} damage`
+  });
+  saveLog(); renderEncounters();
+  setRadarStatus(`⚠️ A ${type} closed in and hit you for ${dmg} HP!`);
+}
+async function tickZombies(){
+  if(!myPos) return;
+  const players = getAllKnownPositions();
+  if(players.length===0) return;
+  for(const [id,z] of Object.entries(zombies)){
+    let nearest=null, nearestDist=Infinity;
+    players.forEach(p=>{
+      const d = haversineMeters(z.lat, z.lng, p.lat, p.lng);
+      if(d<nearestDist){ nearestDist=d; nearest=p; }
+    });
+    if(!nearest) continue;
+    let finalPos = {lat:z.lat, lng:z.lng};
+    if(nearestDist <= AGGRO_RANGE_M){
+      const cfg = stepForType(z.type);
+      let brg = bearingDeg(z.lat, z.lng, nearest.lat, nearest.lng);
+      if(cfg.erraticChance && Math.random() < cfg.erraticChance) brg = Math.random()*360;
+      let stepDist = cfg.dist;
+      for(const b of Object.values(bulwarks)){
+        if(b.expiresAt > Date.now() && haversineMeters(z.lat, z.lng, b.lat, b.lng) <= 25){
+          stepDist *= 0.3; // Rapid Reinforcement — the hum disrupts undead equilibrium nearby
+          break;
+        }
+      }
+      finalPos = movePoint(z.lat, z.lng, brg, stepDist);
+      set(ref(db,`ashfall-zombies/${id}`), {...z, lat:finalPos.lat, lng:finalPos.lng, aggro:true}).catch(()=>{});
+    }
+    const myDist = haversineMeters(myPos.lat, myPos.lng, finalPos.lat, finalPos.lng);
+
+    if(nearest.role === radarRole && myDist <= WARNING_RANGE_M){
+      const lastWarn = warnLog[id] || 0;
+      if(Date.now() - lastWarn > WARNING_COOLDOWN_MS){
+        warnLog[id] = Date.now();
+        const hidden = (z.type === 'Mutated' && radarRole !== 'Hunter');
+        const msg = hidden
+          ? `⚠️ Something you can't quite make out is closing in — ${Math.round(myDist)}m away.`
+          : `⚠️ A ${z.type} has spotted you! ${Math.round(myDist)}m away.`;
+        showThreatToast(msg);
+        if(typeof ambientOn !== 'undefined' && ambientOn) playHeartbeat();
+      }
+    }
+
+    if(myDist <= DAMAGE_RANGE_M){
+      const last = damageLog[id] || 0;
+      if(Date.now() - last > DAMAGE_COOLDOWN_MS){
+        damageLog[id] = Date.now();
+        applyZombieDamage(z.type);
+      }
+    }
+  }
 }
 
 function visibleZombies(){
@@ -1486,6 +1813,7 @@ function renderRadar(){
   };
   visibleZombies().forEach(z=> place(z.brg, z.dist, cfg.range, z.type.toLowerCase(), Math.round(z.dist)+'m'));
   visibleTeammates().forEach(t=> place(t.brg, t.dist, cfg.range, 'teammate', t.role));
+  visibleLoot().forEach(l=> place(l.brg, l.dist, lootRangeFor(radarRole), 'loot', Math.round(l.dist)+'m'));
 }
 
 function renderZombieList(){
@@ -1533,6 +1861,199 @@ window.addMission = addMission;
 window.addTravel = addTravel;
 window.addLoot = addLoot;
 window.addInventory = addInventory;
+
+/* ============================================================
+   SIGNATURE ABILITIES — cooldowns, rolls, real mechanical effects
+   ============================================================ */
+const ABILITY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per character
+let abilityState = {};   // role -> {lastUsed}
+let bulwarks = {};       // id -> {lat,lng,expiresAt} (Engineer's deployable barricade)
+
+const ABILITY_LABEL = {
+  Hunter:"Predator's Insight",
+  Scavenger:'Silent Retrieval',
+  Medic:'Crisis Stabilisation',
+  Engineer:'Rapid Reinforcement'
+};
+
+function renderAbilityBox(i){
+  const ch = state.characters[i];
+  const box = document.getElementById('ability-box-'+i);
+  if(!box || !ch.open) return;
+  const ab = abilityState[ch.role] || {};
+  const remaining = ABILITY_COOLDOWN_MS - (Date.now() - (ab.lastUsed||0));
+
+  if(ab.lastUsed && remaining > 0){
+    const mins = Math.floor(remaining/60000), secs = Math.floor((remaining%60000)/1000);
+    box.innerHTML = `<div class="roll-panel" style="border-color:var(--border);">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--bone-dim);letter-spacing:1px;">${ABILITY_LABEL[ch.role].toUpperCase()} — ON COOLDOWN</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--bone-dim);margin-top:4px;">${mins}m ${secs.toString().padStart(2,'0')}s</div>
+    </div>`;
+    return;
+  }
+
+  if(ch.role === 'Medic'){
+    box.innerHTML = `
+      <div class="roll-panel">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--signal);letter-spacing:1px;">CRISIS STABILISATION — CHOOSE A TARGET</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+          ${state.characters.map((c,ti)=>`<button class="zbtn" data-target-i="${ti}">${c.name||c.role}</button>`).join('')}
+        </div>
+        <div id="ability-result-${i}"></div>
+      </div>`;
+    box.querySelectorAll('[data-target-i]').forEach(btn=>{
+      btn.addEventListener('click', ()=> rollMedicAbility(i, +btn.dataset.targetI));
+    });
+  } else {
+    box.innerHTML = `
+      <div class="roll-panel">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--signal);letter-spacing:1px;">${ABILITY_LABEL[ch.role].toUpperCase()}</div>
+        <button class="roll-die-btn" id="ability-roll-${i}" style="margin-top:8px;">🎲 Use Ability (d20)</button>
+        <div id="ability-result-${i}"></div>
+      </div>`;
+    const btn = document.getElementById(`ability-roll-${i}`);
+    if(btn) btn.addEventListener('click', ()=> rollGenericAbility(i));
+  }
+}
+
+async function rollMedicAbility(casterIdx, targetIdx){
+  const roll = 1 + Math.floor(Math.random()*20);
+  const target = state.characters[targetIdx];
+  let healed = 0, msg = '';
+  if(roll === 20){ healed = 5; msg = 'Critical success!'; }
+  else if(roll >= 10){ healed = 3; msg = 'Stabilised.'; }
+  else { healed = 0; msg = 'Attempt failed — patient stays as is.'; }
+
+  target.hp = Math.min(target.maxHp, target.hp + healed);
+  if(healed > 0 && target.status !== 'Down'){
+    target.status = target.hp >= target.maxHp ? 'Healthy' : (target.hp <= 3 ? 'Critical' : 'Injured');
+  }
+  saveParty(); renderParty();
+
+  await set(ref(db, 'ashfall-abilities/Medic'), {lastUsed: Date.now()});
+  const targetName = target.name || target.role;
+  const resultText = `Roll ${roll}: ${msg}${healed>0 ? ' +'+healed+' HP to '+targetName : ''}`;
+  const resEl = document.getElementById(`ability-result-${casterIdx}`);
+  if(resEl) resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${roll===20?'var(--spore)':healed>0?'var(--bone)':'var(--danger)'};margin-top:8px;">${resultText}</div>`;
+  showThreatToast(`⚕️ ${resultText}`);
+  state.encounters.push({
+    location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    who:'Mireyah', action:`Used Crisis Stabilisation on ${targetName}`, roll:`Expertise d20: ${roll}`, outcome: resultText
+  });
+  saveLog(); renderEncounters();
+}
+
+async function rollGenericAbility(casterIdx){
+  const ch = state.characters[casterIdx];
+  const roll = 1 + Math.floor(Math.random()*20);
+  const success = roll >= 10;
+  const crit = roll === 20;
+  let outcome = '';
+
+  if(ch.role === 'Hunter'){
+    const targets = (myPos ? visibleZombies() : []);
+    if(success && targets.length){
+      const t = targets[0];
+      set(ref(db, `ashfall-zombies/${t.id}`), {...zombies[t.id], marked:true}).catch(()=>{});
+      outcome = `Marked the nearest ${t.type} (${Math.round(t.dist)}m) — the party has advantage against it.`;
+    } else if(success){
+      outcome = 'The scope finds nothing to mark right now.';
+    } else {
+      outcome = 'Spore interference garbles the scope. Nothing marked.';
+    }
+  } else if(ch.role === 'Scavenger'){
+    if(success){
+      const pick = weightedRandomLoot();
+      state.inventory.push({item:pick.item, qty:1, owner: ch.name||ch.role, category:pick.category, cond:'Silent Retrieval find — no noise made'});
+      saveGear(); renderInventory();
+      outcome = `Silently retrieved: ${pick.item}. No noise made.`;
+    } else {
+      outcome = 'Nothing worth grabbing turns up this time.';
+    }
+  } else if(ch.role === 'Engineer'){
+    if(success && myPos){
+      const bref = push(ref(db,'ashfall-bulwarks'));
+      set(bref, {lat:myPos.lat, lng:myPos.lng, expiresAt: Date.now() + 10*60*1000}).catch(()=>{});
+      outcome = 'Bulwark deployed — zombies within 25m of this spot will move much slower for the next 10 minutes.';
+    } else if(success){
+      outcome = 'Bulwark reinforced into the terrain (enable Radar location to get the real slow-zone effect).';
+    } else {
+      outcome = 'The plating jams. The Bulwark fails to deploy properly.';
+    }
+  }
+
+  await set(ref(db, `ashfall-abilities/${ch.role}`), {lastUsed: Date.now()});
+  const resultText = `Roll ${roll}${crit?' (CRITICAL)':''} — ${outcome}`;
+  const resEl = document.getElementById(`ability-result-${casterIdx}`);
+  if(resEl) resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${crit?'var(--spore)':success?'var(--bone)':'var(--danger)'};margin-top:8px;">${resultText}</div>`;
+  showThreatToast(`🎯 ${ch.name||ch.role}: ${outcome}`);
+  state.encounters.push({
+    location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    who: ch.name||ch.role, action:`Used ${ABILITY_LABEL[ch.role]}`, roll:`d20: ${roll}`, outcome
+  });
+  saveLog(); renderEncounters();
+}
+
+// live-refresh the cooldown countdown for whichever character card is open
+setInterval(()=>{
+  state.characters.forEach((ch,i)=>{ if(ch.open) renderAbilityBox(i); });
+}, 1000);
+
+/* ============================================================
+   LEAFLET MAP — real map view of the party, threats, and loot
+   ============================================================ */
+let leafletMap = null;
+let mapMarkers = { me:null, teammates:{}, zombies:{}, loot:{} };
+function makeDivIcon(cls, emoji){
+  return L.divIcon({ html:`<div class="map-pin ${cls}">${emoji||''}</div>`, iconSize:[22,22], className:'' });
+}
+function initLeafletMap(){
+  if(leafletMap || !myPos) return;
+  leafletMap = L.map('radar-map', {zoomControl:false, attributionControl:false}).setView([myPos.lat, myPos.lng], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(leafletMap);
+  updateMapMarkers();
+}
+function updateMapMarkers(){
+  if(!leafletMap || !myPos) return;
+  if(!mapMarkers.me){
+    mapMarkers.me = L.marker([myPos.lat, myPos.lng], {icon: makeDivIcon('me','◆')}).addTo(leafletMap);
+    leafletMap.setView([myPos.lat, myPos.lng]);
+  } else {
+    mapMarkers.me.setLatLng([myPos.lat, myPos.lng]);
+  }
+
+  const seenTeam = new Set();
+  visibleTeammates().forEach(t=>{
+    seenTeam.add(t.role);
+    const raw = teammates[t.role];
+    if(!raw) return;
+    if(!mapMarkers.teammates[t.role]) mapMarkers.teammates[t.role] = L.marker([raw.lat, raw.lng], {icon: makeDivIcon('teammate', t.role[0])}).addTo(leafletMap);
+    else mapMarkers.teammates[t.role].setLatLng([raw.lat, raw.lng]);
+  });
+  Object.keys(mapMarkers.teammates).forEach(role=>{
+    if(!seenTeam.has(role)){ leafletMap.removeLayer(mapMarkers.teammates[role]); delete mapMarkers.teammates[role]; }
+  });
+
+  const seenZ = new Set();
+  visibleZombies().forEach(z=>{
+    seenZ.add(z.id);
+    if(!mapMarkers.zombies[z.id]) mapMarkers.zombies[z.id] = L.marker([z.lat, z.lng], {icon: makeDivIcon(z.type.toLowerCase())}).addTo(leafletMap);
+    else mapMarkers.zombies[z.id].setLatLng([z.lat, z.lng]);
+  });
+  Object.keys(mapMarkers.zombies).forEach(id=>{
+    if(!seenZ.has(id)){ leafletMap.removeLayer(mapMarkers.zombies[id]); delete mapMarkers.zombies[id]; }
+  });
+
+  const seenL = new Set();
+  visibleLoot().forEach(l=>{
+    seenL.add(l.id);
+    if(!mapMarkers.loot[l.id]) mapMarkers.loot[l.id] = L.marker([l.lat, l.lng], {icon: makeDivIcon('loot','$')}).bindPopup(l.item).addTo(leafletMap);
+    else mapMarkers.loot[l.id].setLatLng([l.lat, l.lng]);
+  });
+  Object.keys(mapMarkers.loot).forEach(id=>{
+    if(!seenL.has(id)){ leafletMap.removeLayer(mapMarkers.loot[id]); delete mapMarkers.loot[id]; }
+  });
+}
 
 /* ============================================================
    AI DM ENGINE
