@@ -1673,6 +1673,7 @@ let myPos = null;      // {lat, lng} — the position actually used for all game
 let rawMyPos = null;   // {lat, lng} — this device's own true GPS reading, always broadcast as-is
 let followRole = localStorage.getItem('ashfall-follow-role') || '';
 let myHeading = 0;     // degrees, 0 = North
+let myTilt = 90;        // device front-back tilt (beta), ~90 = held upright looking forward
 let zombies = {};      // id -> {lat,lng,type,spawnedAt}
 let teammates = {};    // role -> {lat,lng,updatedAt}
 let loot = {};          // id -> {lat,lng,item,category,spawnedAt}
@@ -1819,6 +1820,7 @@ function startCompass(){
     else if(e.alpha != null) heading = (360 - e.alpha) % 360;
     else return;
     myHeading = heading;
+    if(typeof e.beta === 'number') myTilt = e.beta; // front-back tilt, used to ground-anchor AR targets
     renderRadar();
   };
   window.addEventListener('deviceorientationabsolute', handler, true);
@@ -2528,10 +2530,97 @@ function updateMapMarkers(){
 /* ============================================================
    AR VIEW — camera feed with GPS/compass-projected overlays
    ============================================================ */
-const AR_FOV_DEG = 65; // approximate horizontal field of view of a phone's rear camera
+const AR_FOV_DEG = 65;   // approximate horizontal field of view of a phone's rear camera
+const AR_VFOV_DEG = 50;  // approximate vertical field of view
+const AR_CAMERA_HEIGHT_M = 1.4; // assumed height of the phone above the ground while held up
 let arActive = false;
 let arStream = null;
 let arRafId = null;
+
+/* ---------- WALL OCCLUSION (best effort) ----------
+   There's no real depth-sensing here — this pulls actual building footprints
+   from OpenStreetMap (free, public data) and checks whether the straight line
+   between you and a zombie crosses a building wall. It only hides a zombie if
+   OSM has building data for that spot, so coverage varies by area — in places
+   OSM hasn't mapped buildings, this has no effect and zombies show normally. */
+let buildingPolygons = [];
+let lastBuildingFetchAt = 0;
+let lastBuildingFetchPos = null;
+async function refreshBuildingData(){
+  if(!myPos) return;
+  const now = Date.now();
+  if(lastBuildingFetchPos){
+    const moved = haversineMeters(myPos.lat, myPos.lng, lastBuildingFetchPos.lat, lastBuildingFetchPos.lng);
+    if(moved < 100 && now - lastBuildingFetchAt < 60000) return; // throttle: refetch only if moved 100m+ or 60s passed
+  }
+  lastBuildingFetchAt = now;
+  lastBuildingFetchPos = {lat:myPos.lat, lng:myPos.lng};
+  try{
+    const q = `[out:json][timeout:10];way["building"](around:300,${myPos.lat},${myPos.lng});(._;>;);out body;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
+    const data = await res.json();
+    const nodes = {};
+    (data.elements||[]).filter(e=>e.type==='node').forEach(n=> nodes[n.id] = {lat:n.lat, lng:n.lon});
+    buildingPolygons = (data.elements||[])
+      .filter(e=>e.type==='way' && e.nodes)
+      .map(w=> w.nodes.map(id=>nodes[id]).filter(Boolean))
+      .filter(poly=>poly.length>=3);
+  }catch(e){ /* best effort — if this fails, occlusion is simply skipped */ }
+}
+function segmentsIntersect(p1,p2,p3,p4){
+  const d = (a,b,c)=> (c.lng-a.lng)*(b.lat-a.lat) - (b.lng-a.lng)*(c.lat-a.lat);
+  const d1 = d(p3,p4,p1), d2 = d(p3,p4,p2), d3 = d(p1,p2,p3), d4 = d(p1,p2,p4);
+  return ((d1>0&&d2<0)||(d1<0&&d2>0)) && ((d3>0&&d4<0)||(d3<0&&d4>0));
+}
+function isOccluded(zLat, zLng){
+  if(!myPos || buildingPolygons.length===0) return false;
+  const a = {lat:myPos.lat, lng:myPos.lng}, b = {lat:zLat, lng:zLng};
+  for(const poly of buildingPolygons){
+    for(let i=0;i<poly.length-1;i++){
+      if(segmentsIntersect(a,b,poly[i],poly[i+1])) return true;
+    }
+  }
+  return false;
+}
+
+/* ---------- ELEVATION (best effort) ----------
+   Ground-anchoring assumed flat terrain by default. This pulls real elevation
+   data (public SRTM-based dataset, ~30m resolution) for your position and each
+   zombie's position, so a zombie standing uphill or downhill actually appears
+   higher/lower on screen instead of looking like it's floating or sunk into
+   the ground. 30m resolution means small curbs/steps won't register, but real
+   hills and slopes will. If the elevation service is unreachable, this quietly
+   falls back to the flat-ground assumption — never worse than before, just not
+   improved for that moment. */
+let elevationCache = {};
+let lastElevFetchAt = 0;
+function elevKey(lat,lng){ return `${lat.toFixed(4)}_${lng.toFixed(4)}`; }
+async function refreshElevationData(){
+  if(!myPos) return;
+  const now = Date.now();
+  if(now - lastElevFetchAt < 20000) return; // throttle to one batch every 20s
+  const points = [{lat:myPos.lat, lng:myPos.lng}, ...visibleZombies().map(z=>({lat:z.lat, lng:z.lng}))];
+  const missing = [];
+  const seen = new Set();
+  points.forEach(p=>{
+    const k = elevKey(p.lat,p.lng);
+    if(!seen.has(k) && elevationCache[k]==null){ seen.add(k); missing.push({...p, key:k}); }
+  });
+  if(missing.length===0) return;
+  lastElevFetchAt = now;
+  try{
+    const locStr = missing.map(p=>`${p.lat},${p.lng}`).join('|');
+    const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${encodeURIComponent(locStr)}`);
+    const data = await res.json();
+    (data.results||[]).forEach((r,i)=>{
+      if(missing[i]) elevationCache[missing[i].key] = r.elevation;
+    });
+  }catch(e){ /* best effort — falls back to flat-ground assumption */ }
+}
+function elevationAt(lat,lng){
+  const k = elevKey(lat,lng);
+  return elevationCache[k] != null ? elevationCache[k] : null;
+}
 
 async function startARView(){
   if(!myPos){ alert('Enable Location & Compass first (tap the button above) before using AR.'); return; }
@@ -2565,6 +2654,8 @@ function renderARLoop(){
   if(!arActive) return;
   updateARHud();
   renderARTargets();
+  refreshBuildingData(); // internally throttled — safe to call every loop
+  refreshElevationData(); // internally throttled — safe to call every loop
   arRafId = requestAnimationFrame(()=> setTimeout(renderARLoop, 150)); // ~6-7fps is plenty for this
 }
 
@@ -2602,9 +2693,23 @@ function renderARTargets(){
   };
 
   const placeZombie = (z)=>{
+    if(isOccluded(z.lat, z.lng)) return; // a wall genuinely stands between you and it — don't show it
     const rel = relBearing(z.brg);
     if(Math.abs(rel) > half){ if(rel<0) leftFlag=true; else rightFlag=true; return; }
     const xPct = 50 + (rel/half)*50;
+
+    // ground-anchor: how far below "looking level" a ground point at this distance
+    // should sit, then offset by how much you're currently tilting the phone down.
+    // Factors in real elevation difference where available, so hills/slopes work.
+    const myElev = elevationAt(myPos.lat, myPos.lng);
+    const zElev = elevationAt(z.lat, z.lng);
+    const elevDiff = (myElev != null && zElev != null) ? (zElev - myElev) : 0; // +ve = zombie is uphill from you
+    const effectiveCamHeight = AR_CAMERA_HEIGHT_M - elevDiff;
+    const groundDownAngle = toDeg(Math.atan2(effectiveCamHeight, Math.max(z.dist,1)));
+    const userTiltDown = Math.max(-45, Math.min(45, myTilt - 90));
+    const verticalOffsetDeg = groundDownAngle - userTiltDown;
+    const yPct = Math.max(20, Math.min(88, 50 + (verticalOffsetDeg/(AR_VFOV_DEG/2))*50));
+
     const scale = Math.max(0.5, Math.min(1.7, 40/Math.max(z.dist,8)));
     const liveZ = zombies[z.id] || z;
     const maxHp = ZOMBIE_MAX_HP[z.type] || 3;
@@ -2612,7 +2717,7 @@ function renderARTargets(){
 
     const fig = document.createElement('div');
     fig.className = 'ar-figure ar-target ' + z.type.toLowerCase();
-    fig.style.left = xPct+'%'; fig.style.top = '56%';
+    fig.style.left = xPct+'%'; fig.style.top = yPct+'%';
     fig.style.transform = `translate(-50%,-50%) scale(${scale.toFixed(2)})`;
     fig.innerHTML = `
       <div class="ar-figure-wrap">
