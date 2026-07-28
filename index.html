@@ -336,6 +336,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 .map-pin.mutated{background:#a35ad1;}
 .map-pin.loot{background:var(--signal);border-radius:3px;}
 .blip.loot{background:var(--signal);border-radius:3px;transform-origin:center;box-shadow:0 0 6px var(--signal);}
+.blip.safehouse{background:#4a9d9c;border-radius:4px;box-shadow:0 0 10px #4a9d9c;}
+.map-pin.safehouse{background:#4a9d9c;border-radius:4px;}
 
 </style>
 </head>
@@ -417,6 +419,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
         <tr><td class="k">🏖 Beach</td><td>Ashfall Shoreline</td></tr>
       </table>
 
+      <div class="eyebrow">Safe Houses</div>
+      <p class="flavor">Mark a real place — like where you're staying — as permanently safe. Zombies won't spawn there, can't sense anyone inside, and can't deal damage there.</p>
+      <div id="safehouse-list"></div>
+      <button class="add-btn" id="add-safehouse-btn">+ Mark Current Location as Safe House</button>
+
       <div class="eyebrow">Goals</div>
       <h2 class="section-title" style="font-size:14px;color:var(--ember);font-family:'JetBrains Mono',monospace;letter-spacing:1px;margin-bottom:8px;">PRIMARY</h2>
       <div class="checklist" id="goals-primary"></div>
@@ -491,7 +498,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
           <div class="srow-top"><span>Noise Level</span><span id="noiseLabel">Quiet</span></div>
           <input type="range" min="0" max="100" id="noiseSlider">
         </div>
-        <div class="slider-row" style="margin-bottom:0;">
+        <button class="add-btn" id="auto-noise-btn" style="color:var(--signal);margin-bottom:0;">🎙️ Auto Noise (Use Microphone)</button>
+        <div class="radar-status" id="auto-noise-status" style="margin-top:6px;">Manual — drag the slider above, or tap to auto-detect from real sound.</div>
+        <div class="slider-row" style="margin-top:14px;margin-bottom:0;">
           <div class="srow-top"><span>Spore Exposure</span><span id="sporeLabel">Low</span></div>
           <input type="range" min="0" max="100" id="sporeSlider">
         </div>
@@ -1312,6 +1321,7 @@ function renderLevels(){
 }
 function bindLevelSliders(){
   document.getElementById('noiseSlider').addEventListener('input', e=>{
+    if(autoNoiseOn) return; // ignore manual drags while mic is driving it
     state.levels.noise = parseInt(e.target.value);
     updateHudBars(); saveGear();
   });
@@ -1319,7 +1329,76 @@ function bindLevelSliders(){
     state.levels.spore = parseInt(e.target.value);
     updateHudBars(); saveGear();
   });
+  document.getElementById('auto-noise-btn').addEventListener('click', toggleAutoNoise);
 }
+
+/* ---------- AUTO NOISE — real ambient volume from the microphone ---------- */
+let autoNoiseOn = false;
+let micStream = null, micAnalyser = null, micDataArray = null, micRafId = null;
+let noiseWriteTimer = null;
+
+async function toggleAutoNoise(){
+  const statusEl = document.getElementById('auto-noise-status');
+  const btn = document.getElementById('auto-noise-btn');
+  const slider = document.getElementById('noiseSlider');
+  if(autoNoiseOn){
+    stopAutoNoise();
+    btn.textContent = '🎙️ Auto Noise (Use Microphone)';
+    btn.style.color = 'var(--signal)';
+    slider.disabled = false;
+    statusEl.textContent = 'Manual — drag the slider above, or tap to auto-detect from real sound.';
+    return;
+  }
+  statusEl.textContent = 'Requesting microphone permission...';
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const ctx = ensureAudioCtx();
+    const source = ctx.createMediaStreamSource(micStream);
+    micAnalyser = ctx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    micAnalyser.smoothingTimeConstant = 0.6;
+    source.connect(micAnalyser);
+    micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+    autoNoiseOn = true;
+    btn.textContent = '🎙️ Auto Noise ON — tap to stop';
+    btn.style.color = 'var(--ember)';
+    slider.disabled = true;
+    statusEl.textContent = 'Listening to real ambient sound...';
+    sampleMicLoop();
+  }catch(e){
+    statusEl.textContent = 'Microphone permission denied — enable it in Settings, or use the slider manually.';
+  }
+}
+
+function sampleMicLoop(){
+  if(!autoNoiseOn || !micAnalyser) return;
+  micAnalyser.getByteTimeDomainData(micDataArray);
+  let sumSquares = 0;
+  for(let i=0;i<micDataArray.length;i++){
+    const v = (micDataArray[i]-128)/128;
+    sumSquares += v*v;
+  }
+  const rms = Math.sqrt(sumSquares/micDataArray.length); // 0 (silent) to ~1 (very loud)
+  const level = Math.max(0, Math.min(100, Math.round(rms * 380))); // scaled to feel right for phone mics
+
+  document.getElementById('noiseSlider').value = level;
+  document.getElementById('auto-noise-status').textContent = `Listening — current ambient level: ${level}/100`;
+  state.levels.noise = level;
+  updateHudBars();
+
+  clearTimeout(noiseWriteTimer);
+  noiseWriteTimer = setTimeout(()=> saveGear(), 800); // debounce shared writes so it isn't hammering Firebase every frame
+
+  micRafId = requestAnimationFrame(sampleMicLoop);
+}
+
+function stopAutoNoise(){
+  autoNoiseOn = false;
+  if(micRafId) cancelAnimationFrame(micRafId);
+  if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  micStream = null; micAnalyser = null;
+}
+
 function updateHudBars(){
   const n = state.levels.noise, s = state.levels.spore;
   document.getElementById('noiseFill').style.width = n+'%';
@@ -1386,6 +1465,29 @@ let myHeading = 0;     // degrees, 0 = North
 let zombies = {};      // id -> {lat,lng,type,spawnedAt}
 let teammates = {};    // role -> {lat,lng,updatedAt}
 let loot = {};          // id -> {lat,lng,item,category,spawnedAt}
+
+/* ---------- WORLD-SIM LEADER ELECTION ----------
+   Multiple phones running the radar independently were all computing and
+   writing zombie movement at once, causing race conditions (positions
+   flickering/rubber-banding as two devices overwrote each other). Only one
+   device — the "leader" — is now allowed to actually move/spawn/despawn the
+   shared world. Every other device still reads and reacts normally
+   (damage, warnings, visibility) — they just don't write movement. */
+const LEADER_LEASE_MS = 15000;
+let isLeader = false;
+async function refreshLeaderStatus(){
+  try{
+    const snap = await get(ref(db,'ashfall-tick-leader'));
+    const val = snap.exists() ? snap.val() : null;
+    const now = Date.now();
+    if(!val || now - (val.ts||0) > LEADER_LEASE_MS || val.deviceId === DEVICE_ID){
+      await set(ref(db,'ashfall-tick-leader'), {deviceId: DEVICE_ID, ts: now});
+      isLeader = true;
+    } else {
+      isLeader = false;
+    }
+  }catch(e){ isLeader = false; }
+}
 let watchId = null;
 let lastPosWriteAt = 0;
 
@@ -1479,8 +1581,9 @@ function enableRadar(){
     startCompass();
   }
   startGeolocation();
+  refreshLeaderStatus();
   if(zombieTickInterval) clearInterval(zombieTickInterval);
-  zombieTickInterval = setInterval(tickZombies, TICK_MS);
+  zombieTickInterval = setInterval(async ()=>{ await refreshLeaderStatus(); tickZombies(); }, TICK_MS);
 }
 
 function startCompass(){
@@ -1539,7 +1642,8 @@ async function maybeWritePosition(){
 
 let spawnLock = false;
 async function maybeSpawn(){
-  if(!myPos || spawnLock) return;
+  if(!myPos || spawnLock || !isLeader) return;
+  if(isInsideSafehouse(myPos.lat, myPos.lng)) return; // no spawns while sheltering
   spawnLock = true;
   try{
     const metaSnap = await get(ref(db,'ashfall-zombies-meta/lastSpawn'));
@@ -1553,8 +1657,10 @@ async function maybeSpawn(){
         const brg = Math.random()*360;
         const dLat = (dist * Math.cos(toRad(brg))) / 111320;
         const dLng = (dist * Math.sin(toRad(brg))) / (111320 * Math.cos(toRad(myPos.lat)));
+        const spawnLat = myPos.lat+dLat, spawnLng = myPos.lng+dLng;
+        if(isInsideSafehouse(spawnLat, spawnLng)) continue; // don't drop one right inside a safe zone either
         const newRef = push(ref(db,'ashfall-zombies'));
-        await set(newRef, {lat: myPos.lat+dLat, lng: myPos.lng+dLng, type: weightedRandomType(), spawnedAt: Date.now()});
+        await set(newRef, {lat: spawnLat, lng: spawnLng, type: weightedRandomType(), spawnedAt: Date.now(), facing: Math.random()*360, aggro:false});
       }
     }
   }catch(e){ /* best effort */ }
@@ -1562,7 +1668,7 @@ async function maybeSpawn(){
 }
 
 function maybeDespawn(){
-  if(!myPos) return;
+  if(!myPos || !isLeader) return;
   const players = getAllKnownPositions();
   Object.entries(zombies).forEach(([id,z])=>{
     // check distance from whichever party member is closest, not just this device —
@@ -1579,7 +1685,7 @@ function maybeDespawn(){
 /* ---------- LOOT DROPS ---------- */
 let lootSpawnLock = false;
 async function maybeSpawnLoot(){
-  if(!myPos || lootSpawnLock) return;
+  if(!myPos || lootSpawnLock || !isLeader) return;
   lootSpawnLock = true;
   try{
     const metaSnap = await get(ref(db,'ashfall-loot-meta/lastSpawn'));
@@ -1598,7 +1704,7 @@ async function maybeSpawnLoot(){
   lootSpawnLock = false;
 }
 function maybeDespawnLoot(){
-  if(!myPos) return;
+  if(!myPos || !isLeader) return;
   const players = getAllKnownPositions();
   Object.entries(loot).forEach(([id,l])=>{
     const distances = players.map(p => haversineMeters(p.lat, p.lng, l.lat, l.lng));
@@ -1715,35 +1821,82 @@ function applyZombieDamage(type){
   saveLog(); renderEncounters();
   setRadarStatus(`⚠️ A ${type} closed in and hit you for ${dmg} HP!`);
 }
+const VISION_CONFIG = {
+  Shambler:  {range:35, cone:60},
+  Runner:    {range:55, cone:80},
+  Sporebound:{range:40, cone:360}, // erratic — no blind spot
+  Mutated:   {range:70, cone:100}
+};
+const NOISE_BASE_RANGE_M = 10;
+const NOISE_MAX_RANGE_M = 90;
+function noiseDetectRange(){
+  const n = (state.levels && state.levels.noise) || 0;
+  return NOISE_BASE_RANGE_M + (n/100) * (NOISE_MAX_RANGE_M - NOISE_BASE_RANGE_M);
+}
+function detectsPlayer(z, p){
+  const dist = haversineMeters(z.lat, z.lng, p.lat, p.lng);
+  if(dist <= noiseDetectRange()) return true; // heard you, regardless of facing
+  const vcfg = VISION_CONFIG[z.type] || VISION_CONFIG.Shambler;
+  if(dist <= vcfg.range){
+    const brgToPlayer = bearingDeg(z.lat, z.lng, p.lat, p.lng);
+    const diff = Math.abs(((brgToPlayer - (z.facing||0) + 540) % 360) - 180);
+    if(diff <= vcfg.cone/2) return true; // in its line of sight
+  }
+  return false;
+}
+function zombieAwarenessInfo(z){
+  if(z.aggro) return {safe:false, label:'🔴 Hunting you'};
+  if(!myPos) return {safe:true, label:'⚪ Unaware'};
+  return detectsPlayer(z, myPos) ? {safe:false, label:'🟡 About to notice you'} : {safe:true, label:'🟢 Looking away — safe to sneak past'};
+}
+
 async function tickZombies(){
   if(!myPos) return;
-  const players = getAllKnownPositions();
+  // zombies can't sense anyone currently sheltering in a safe house
+  const players = getAllKnownPositions().filter(p => !isInsideSafehouse(p.lat, p.lng));
+  const iAmSafe = isInsideSafehouse(myPos.lat, myPos.lng);
   if(players.length===0) return;
   for(const [id,z] of Object.entries(zombies)){
-    let nearest=null, nearestDist=Infinity;
+    let nearest=null, nearestDist=Infinity, detected=null, detectedDist=Infinity;
     players.forEach(p=>{
       const d = haversineMeters(z.lat, z.lng, p.lat, p.lng);
       if(d<nearestDist){ nearestDist=d; nearest=p; }
+      if(detectsPlayer(z,p) && d<detectedDist){ detectedDist=d; detected=p; }
     });
     if(!nearest) continue;
+    const wasAggro = !!z.aggro;
+    const nowAggro = wasAggro || !!detected; // once spotted, it keeps hunting until despawned
     let finalPos = {lat:z.lat, lng:z.lng};
-    if(nearestDist <= AGGRO_RANGE_M){
-      const cfg = stepForType(z.type);
-      let brg = bearingDeg(z.lat, z.lng, nearest.lat, nearest.lng);
-      if(cfg.erraticChance && Math.random() < cfg.erraticChance) brg = Math.random()*360;
-      let stepDist = cfg.dist;
-      for(const b of Object.values(bulwarks)){
-        if(b.expiresAt > Date.now() && haversineMeters(z.lat, z.lng, b.lat, b.lng) <= 25){
-          stepDist *= 0.3; // Rapid Reinforcement — the hum disrupts undead equilibrium nearby
-          break;
+    let finalFacing = z.facing || 0;
+
+    if(isLeader){
+      if(nowAggro){
+        const target = wasAggro ? nearest : detected;
+        const cfg = stepForType(z.type);
+        let brg = bearingDeg(z.lat, z.lng, target.lat, target.lng);
+        if(cfg.erraticChance && Math.random() < cfg.erraticChance) brg = Math.random()*360;
+        let stepDist = cfg.dist;
+        for(const b of Object.values(bulwarks)){
+          if(b.expiresAt > Date.now() && haversineMeters(z.lat, z.lng, b.lat, b.lng) <= 25){
+            stepDist *= 0.3; // Rapid Reinforcement — the hum disrupts undead equilibrium nearby
+            break;
+          }
         }
+        const candidate = movePoint(z.lat, z.lng, brg, stepDist);
+        if(!isInsideSafehouse(candidate.lat, candidate.lng)) finalPos = candidate;
+        finalFacing = brg;
+        set(ref(db,`ashfall-zombies/${id}`), {...z, lat:finalPos.lat, lng:finalPos.lng, aggro:true, facing:finalFacing}).catch(()=>{});
+      } else {
+        // idle: it slowly looks around rather than staring at one fixed point forever
+        finalFacing = ((z.facing||0) + (Math.random()*40-20) + 360) % 360;
+        set(ref(db,`ashfall-zombies/${id}`), {...z, facing:finalFacing, aggro:false}).catch(()=>{});
       }
-      finalPos = movePoint(z.lat, z.lng, brg, stepDist);
-      set(ref(db,`ashfall-zombies/${id}`), {...z, lat:finalPos.lat, lng:finalPos.lng, aggro:true}).catch(()=>{});
     }
+
+    if(iAmSafe) continue; // fully safe: no warnings, no damage, while sheltering
     const myDist = haversineMeters(myPos.lat, myPos.lng, finalPos.lat, finalPos.lng);
 
-    if(nearest.role === radarRole && myDist <= WARNING_RANGE_M){
+    if(nowAggro && nearest.role === radarRole){
       const lastWarn = warnLog[id] || 0;
       if(Date.now() - lastWarn > WARNING_COOLDOWN_MS){
         warnLog[id] = Date.now();
@@ -1756,7 +1909,7 @@ async function tickZombies(){
       }
     }
 
-    if(myDist <= DAMAGE_RANGE_M){
+    if(nowAggro && myDist <= DAMAGE_RANGE_M){
       const last = damageLog[id] || 0;
       if(Date.now() - last > DAMAGE_COOLDOWN_MS){
         damageLog[id] = Date.now();
@@ -1810,10 +1963,24 @@ function renderRadar(){
       el.appendChild(lb);
     }
     layer.appendChild(el);
+    return el;
   };
-  visibleZombies().forEach(z=> place(z.brg, z.dist, cfg.range, z.type.toLowerCase(), Math.round(z.dist)+'m'));
+  visibleZombies().forEach(z=>{
+    const el = place(z.brg, z.dist, cfg.range, z.type.toLowerCase(), Math.round(z.dist)+'m');
+    // small tick showing which way it's actually facing, relative to your screen
+    const facingRel = (((z.facing||0) - myHeading) % 360 + 360) % 360;
+    const tick = document.createElement('div');
+    tick.style.cssText = `position:absolute;left:50%;top:50%;width:2px;height:13px;background:${z.aggro?'var(--ember)':'rgba(233,228,214,0.7)'};transform:translate(-50%,-100%) rotate(${facingRel}deg);transform-origin:bottom center;`;
+    el.appendChild(tick);
+  });
   visibleTeammates().forEach(t=> place(t.brg, t.dist, cfg.range, 'teammate', t.role));
   visibleLoot().forEach(l=> place(l.brg, l.dist, lootRangeFor(radarRole), 'loot', Math.round(l.dist)+'m'));
+  // safe houses always show regardless of role range — they're a landmark, not a threat
+  Object.values(safehouses).forEach(s=>{
+    const dist = haversineMeters(myPos.lat, myPos.lng, s.lat, s.lng);
+    const brg = bearingDeg(myPos.lat, myPos.lng, s.lat, s.lng);
+    place(brg, dist, Math.max(cfg.range, dist), 'safehouse', s.name);
+  });
 }
 
 function renderZombieList(){
@@ -1831,8 +1998,9 @@ function renderZombieList(){
   zs.forEach(z=>{
     const row = document.createElement('div');
     row.className = 'zombie-row';
+    const info = zombieAwarenessInfo(z);
     row.innerHTML = `
-      <div class="zinfo"><b>${z.type}</b><br><span class="ztag">${Math.round(z.dist)}m · ${compassLabel(z.brg)}</span></div>
+      <div class="zinfo"><b>${z.type}</b><br><span class="ztag">${Math.round(z.dist)}m · ${compassLabel(z.brg)} · facing ${compassLabel(z.facing||0)}</span><br><span class="ztag" style="color:${info.safe?'var(--spore)':'var(--ember)'};">${info.label}</span></div>
       <button class="zbtn" data-zid="${z.id}">Log &amp; Clear</button>`;
     c.appendChild(row);
   });
@@ -1868,6 +2036,51 @@ window.addInventory = addInventory;
 const ABILITY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per character
 let abilityState = {};   // role -> {lastUsed}
 let bulwarks = {};       // id -> {lat,lng,expiresAt} (Engineer's deployable barricade)
+let safehouses = {};     // id -> {name,lat,lng,radius}
+
+function isInsideSafehouse(lat,lng){
+  return Object.values(safehouses).some(s => haversineMeters(lat,lng,s.lat,s.lng) <= (s.radius||40));
+}
+function renderSafehouses(){
+  const c = document.getElementById('safehouse-list');
+  if(!c) return;
+  c.innerHTML='';
+  const entries = Object.entries(safehouses);
+  if(entries.length===0){ c.innerHTML = '<p class="flavor">No safe houses marked yet.</p>'; return; }
+  entries.forEach(([id,s])=>{
+    const dist = myPos ? Math.round(haversineMeters(myPos.lat, myPos.lng, s.lat, s.lng)) : null;
+    const row = document.createElement('div');
+    row.className='zombie-row';
+    row.innerHTML = `<div class="zinfo"><b>🏠 ${s.name}</b><br><span class="ztag">${s.radius||40}m radius${dist!=null ? ' · '+dist+'m away' : ''}</span></div>
+      <button class="zbtn" data-shid="${id}">Remove</button>`;
+    c.appendChild(row);
+  });
+  c.querySelectorAll('[data-shid]').forEach(btn=>{
+    btn.addEventListener('click', ()=> remove(ref(db, `ashfall-safehouses/${btn.dataset.shid}`)).catch(()=>{}));
+  });
+}
+onValue(ref(db,'ashfall-safehouses'), snap=>{
+  safehouses = snap.exists() ? snap.val() : {};
+  renderSafehouses(); renderRadar(); updateMapMarkers();
+});
+document.getElementById('add-safehouse-btn').addEventListener('click', ()=>{
+  const name = prompt('Name this safe house (e.g. "Airbnb", "Basecamp"):', 'Airbnb');
+  if(!name) return;
+  const finalize = (lat,lng)=>{
+    const pref = push(ref(db,'ashfall-safehouses'));
+    set(pref, {name, lat, lng, radius:40, createdAt:Date.now()}).catch(()=>{});
+  };
+  if(myPos){ finalize(myPos.lat, myPos.lng); }
+  else if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos=> finalize(pos.coords.latitude, pos.coords.longitude),
+      ()=> alert('Could not get your location. Enable location permissions and try again.'),
+      {enableHighAccuracy:true, timeout:10000}
+    );
+  } else {
+    alert('Geolocation not supported on this browser.');
+  }
+});
 
 const ABILITY_LABEL = {
   Hunter:"Predator's Insight",
@@ -2053,6 +2266,24 @@ function updateMapMarkers(){
   Object.keys(mapMarkers.loot).forEach(id=>{
     if(!seenL.has(id)){ leafletMap.removeLayer(mapMarkers.loot[id]); delete mapMarkers.loot[id]; }
   });
+
+  const seenSh = new Set();
+  mapMarkers.safehouses = mapMarkers.safehouses || {};
+  Object.entries(safehouses).forEach(([id,s])=>{
+    seenSh.add(id);
+    if(!mapMarkers.safehouses[id]){
+      const marker = L.marker([s.lat, s.lng], {icon: makeDivIcon('safehouse','🏠')}).bindPopup(s.name).addTo(leafletMap);
+      const circle = L.circle([s.lat, s.lng], {radius: s.radius||40, color:'#4a9d9c', fillColor:'#4a9d9c', fillOpacity:0.12, weight:1}).addTo(leafletMap);
+      mapMarkers.safehouses[id] = {marker, circle};
+    }
+  });
+  Object.keys(mapMarkers.safehouses).forEach(id=>{
+    if(!seenSh.has(id)){
+      leafletMap.removeLayer(mapMarkers.safehouses[id].marker);
+      leafletMap.removeLayer(mapMarkers.safehouses[id].circle);
+      delete mapMarkers.safehouses[id];
+    }
+  });
 }
 
 /* ============================================================
@@ -2088,7 +2319,7 @@ Factions: Dockside Collective (containment), Greywater Crew (profit), Ashborn (c
 Tone: tense, atmospheric, short paragraphs, second person plural ("you"), grounded in the real sensory details given.
 You must respond with ONLY raw JSON, no markdown fences, no commentary.`;
 
-function gridKey(lat,lng){ return `${lat.toFixed(3)}_${lng.toFixed(3)}`; }
+function gridKey(lat,lng){ return `${lat.toFixed(3).replace('.','p')}_${lng.toFixed(3).replace('.','p')}`; }
 async function getZoneMemory(){
   if(!myPos) return [];
   try{
@@ -2352,3 +2583,4 @@ init();
 </script>
 </body>
 </html>
+
