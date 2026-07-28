@@ -339,11 +339,83 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 .blip.safehouse{background:#4a9d9c;border-radius:4px;box-shadow:0 0 10px #4a9d9c;}
 .map-pin.safehouse{background:#4a9d9c;border-radius:4px;}
 
+/* ---------- AR CAMERA VIEW ---------- */
+#ar-overlay{
+  display:none;position:fixed;inset:0;z-index:200;background:#000;
+}
+#ar-overlay.active{display:block;}
+#ar-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+#ar-targets{position:absolute;inset:0;pointer-events:none;}
+.ar-target{
+  position:absolute;transform:translate(-50%,-50%);pointer-events:auto;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.ar-target .ar-dot{
+  width:26px;height:26px;border-radius:50%;border:2px solid var(--bone);
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+  box-shadow:0 0 10px rgba(0,0,0,0.6);
+}
+.ar-target.shambler .ar-dot{background:rgba(138,156,126,0.85);}
+.ar-target.runner .ar-dot{background:rgba(193,85,47,0.85);}
+.ar-target.sporebound .ar-dot{background:rgba(124,156,92,0.85);}
+.ar-target.mutated .ar-dot{background:rgba(163,90,209,0.85);}
+.ar-target.loot .ar-dot{background:rgba(207,166,63,0.9);border-radius:4px;}
+.ar-target-label{
+  font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone);
+  background:rgba(0,0,0,0.55);padding:2px 5px;border-radius:2px;white-space:nowrap;
+}
+.ar-edge-arrow{
+  position:absolute;top:45%;font-size:22px;color:var(--bone);pointer-events:none;
+  text-shadow:0 0 6px rgba(0,0,0,0.8);
+}
+.ar-edge-arrow.left{left:8px;}
+.ar-edge-arrow.right{right:8px;}
+.ar-hud-top{
+  position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;right:14px;z-index:5;
+  display:flex;flex-direction:column;gap:6px;
+}
+.ar-hp-row{display:flex;align-items:center;gap:8px;}
+.ar-hp-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone);letter-spacing:1px;width:44px;text-shadow:0 0 4px rgba(0,0,0,0.9);}
+.ar-bar-track{flex:1;height:8px;background:rgba(0,0,0,0.5);border:1px solid rgba(233,228,214,0.3);border-radius:2px;overflow:hidden;}
+.ar-bar-fill{height:100%;transition:width .3s;}
+.ar-bar-fill.hp{background:linear-gradient(90deg,var(--danger),var(--spore));}
+.ar-bar-fill.noise{background:linear-gradient(90deg,var(--ember-dim),var(--ember));}
+#ar-close-btn{
+  position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+  background:rgba(20,21,24,0.85);border:1px solid var(--border);color:var(--bone);
+  font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;padding:10px 22px;border-radius:20px;z-index:5;
+}
+#ar-status{
+  position:absolute;bottom:calc(70px + env(safe-area-inset-bottom));left:14px;right:14px;text-align:center;
+  font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--bone-dim);z-index:5;
+}
+.ar-attack-panel{
+  position:absolute;bottom:calc(110px + env(safe-area-inset-bottom));left:14px;right:14px;z-index:6;
+  background:rgba(20,21,24,0.92);border:1px solid var(--signal);border-radius:6px;padding:12px;text-align:center;
+}
+
 </style>
 </head>
 <body>
 <div id="app">
   <div class="threat-toast" id="threat-toast"></div>
+
+  <div id="ar-overlay">
+    <video id="ar-video" autoplay playsinline muted></video>
+    <div id="ar-targets"></div>
+    <div class="ar-hud-top">
+      <div class="ar-hp-row">
+        <span class="ar-hp-label" id="ar-hp-label">HP</span>
+        <div class="ar-bar-track"><div class="ar-bar-fill hp" id="ar-hp-fill"></div></div>
+      </div>
+      <div class="ar-hp-row">
+        <span class="ar-hp-label">NOISE</span>
+        <div class="ar-bar-track"><div class="ar-bar-fill noise" id="ar-noise-fill"></div></div>
+      </div>
+    </div>
+    <button id="ar-close-btn">✕ Exit AR</button>
+    <div id="ar-status">Starting camera...</div>
+  </div>
 
   <header class="hud">
     <div class="hud-title"><span class="glyph">☣</span>ASHFALL</div>
@@ -623,6 +695,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       <div class="view-toggle">
         <button id="view-radar-btn" class="active">📡 Radar</button>
         <button id="view-map-btn">🗺️ Map</button>
+        <button id="view-ar-btn">📷 AR</button>
       </div>
 
       <div id="radar-map"></div>
@@ -1527,6 +1600,7 @@ function initRadarUI(){
   document.getElementById('radar-enable-btn').addEventListener('click', enableRadar);
   document.getElementById('view-radar-btn').addEventListener('click', ()=>switchRadarView('radar'));
   document.getElementById('view-map-btn').addEventListener('click', ()=>switchRadarView('map'));
+  document.getElementById('view-ar-btn').addEventListener('click', ()=>switchRadarView('ar'));
 
   onValue(ref(db,'ashfall-zombies'), snap=>{
     zombies = snap.exists() ? snap.val() : {};
@@ -1554,6 +1628,10 @@ function switchRadarView(which){
   const mapBtn = document.getElementById('view-map-btn');
   const radarWrap = document.querySelector('.radar-wrap');
   const mapDiv = document.getElementById('radar-map');
+  if(which==='ar'){
+    startARView();
+    return;
+  }
   if(which==='map'){
     radarBtn.classList.remove('active'); mapBtn.classList.add('active');
     radarWrap.style.display='none'; mapDiv.style.display='block';
@@ -2287,6 +2365,136 @@ function updateMapMarkers(){
 }
 
 /* ============================================================
+   AR VIEW — camera feed with GPS/compass-projected overlays
+   ============================================================ */
+const AR_FOV_DEG = 65; // approximate horizontal field of view of a phone's rear camera
+let arActive = false;
+let arStream = null;
+let arRafId = null;
+
+async function startARView(){
+  if(!myPos){ alert('Enable Location & Compass first (tap the button above) before using AR.'); return; }
+  const overlay = document.getElementById('ar-overlay');
+  overlay.classList.add('active');
+  document.getElementById('ar-status').textContent = 'Starting camera...';
+  try{
+    arStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    document.getElementById('ar-video').srcObject = arStream;
+    arActive = true;
+    document.getElementById('ar-status').textContent = 'Point your phone around — threats and loot will appear if they\'re within view.';
+    renderARLoop();
+  }catch(e){
+    document.getElementById('ar-status').textContent = 'Camera permission denied — enable it in Settings to use AR view.';
+  }
+}
+function stopARView(){
+  arActive = false;
+  if(arRafId) cancelAnimationFrame(arRafId);
+  if(arStream) arStream.getTracks().forEach(t=>t.stop());
+  arStream = null;
+  document.getElementById('ar-overlay').classList.remove('active');
+}
+document.getElementById('ar-close-btn').addEventListener('click', stopARView);
+
+function relBearing(brg){
+  return ((brg - myHeading + 540) % 360) - 180; // -180..180, 0 = dead ahead
+}
+
+function renderARLoop(){
+  if(!arActive) return;
+  updateARHud();
+  renderARTargets();
+  arRafId = requestAnimationFrame(()=> setTimeout(renderARLoop, 150)); // ~6-7fps is plenty for this
+}
+
+function updateARHud(){
+  const ch = state.characters.find(c=>c.role===radarRole);
+  if(ch){
+    document.getElementById('ar-hp-label').textContent = `${ch.name||ch.role} HP`;
+    document.getElementById('ar-hp-fill').style.width = Math.max(0, (ch.hp/ch.maxHp)*100) + '%';
+  }
+  document.getElementById('ar-noise-fill').style.width = (state.levels.noise||0) + '%';
+}
+
+function renderARTargets(){
+  const layer = document.getElementById('ar-targets');
+  layer.innerHTML = '';
+  if(!myPos) return;
+  const half = AR_FOV_DEG/2;
+  let leftFlag = false, rightFlag = false;
+
+  const placeEntity = (brg, dist, cls, label, onTap)=>{
+    const rel = relBearing(brg);
+    if(Math.abs(rel) > half){
+      if(rel < 0) leftFlag = true; else rightFlag = true;
+      return;
+    }
+    const xPct = 50 + (rel/half)*50;
+    const scale = Math.max(0.5, Math.min(1.6, 40/Math.max(dist,8)));
+    const el = document.createElement('div');
+    el.className = 'ar-target ' + cls;
+    el.style.left = xPct+'%';
+    el.style.top = '58%';
+    el.style.setProperty('transform', `translate(-50%,-50%) scale(${scale.toFixed(2)})`);
+    el.innerHTML = `<div class="ar-dot">${cls==='loot'?'$':''}</div><div class="ar-target-label">${label}</div>`;
+    if(onTap) el.addEventListener('click', onTap);
+    layer.appendChild(el);
+  };
+
+  visibleZombies().forEach(z=>{
+    placeEntity(z.brg, z.dist, z.type.toLowerCase(), `${z.type} · ${Math.round(z.dist)}m`, ()=> openARAttack(z));
+  });
+  visibleLoot().forEach(l=>{
+    placeEntity(l.brg, l.dist, 'loot', `${l.item} · ${Math.round(l.dist)}m`, ()=>{
+      if(l.dist <= LOOT_PICKUP_RANGE_M) pickUpLoot(l.id);
+      else showThreatToast(`Get closer to pick up ${l.item} (${Math.round(l.dist)}m away).`);
+    });
+  });
+
+  document.querySelectorAll('.ar-edge-arrow').forEach(e=>e.remove());
+  if(leftFlag){
+    const a = document.createElement('div'); a.className='ar-edge-arrow left'; a.textContent='◀'; layer.appendChild(a);
+  }
+  if(rightFlag){
+    const a = document.createElement('div'); a.className='ar-edge-arrow right'; a.textContent='▶'; layer.appendChild(a);
+  }
+}
+
+function openARAttack(z){
+  const existing = document.querySelector('.ar-attack-panel');
+  if(existing) existing.remove();
+  const ch = state.characters.find(c=>c.role===radarRole);
+  const die = ch ? ROLE_DICE[ch.role].combat : 'd20';
+  const panel = document.createElement('div');
+  panel.className = 'ar-attack-panel';
+  panel.innerHTML = `
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--signal);letter-spacing:1px;">ATTACK ${z.type.toUpperCase()} — ${die.toUpperCase()}</div>
+    <button class="roll-die-btn" id="ar-attack-roll" style="margin-top:8px;">🎲 Roll to Attack</button>
+    <div id="ar-attack-result"></div>
+  `;
+  document.getElementById('ar-overlay').appendChild(panel);
+  document.getElementById('ar-attack-roll').addEventListener('click', ()=>{
+    const sides = parseInt(die.replace('d',''));
+    const roll = 1 + Math.floor(Math.random()*sides);
+    const success = roll >= Math.ceil(sides*0.5);
+    const resEl = document.getElementById('ar-attack-result');
+    if(success){
+      resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--spore);margin-top:8px;">Roll ${roll} — Hit! ${z.type} goes down.</div>`;
+      remove(ref(db, `ashfall-zombies/${z.id}`)).catch(()=>{});
+      state.encounters.push({
+        location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+        who: (ch&&ch.name)||radarRole, threat:z.type, action:'Attacked in AR view', roll:`${die}: ${roll}`, outcome:'Defeated'
+      });
+      saveLog(); renderEncounters();
+    } else {
+      resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--danger);margin-top:8px;">Roll ${roll} — Miss! It's still coming.</div>`;
+      set(ref(db, `ashfall-zombies/${z.id}`), {...zombies[z.id], aggro:true}).catch(()=>{});
+    }
+    setTimeout(()=> panel.remove(), 2200);
+  });
+}
+
+/* ============================================================
    AI DM ENGINE
    ============================================================ */
 async function callClaude(systemPrompt, userPrompt){
@@ -2583,4 +2791,3 @@ init();
 </script>
 </body>
 </html>
-
