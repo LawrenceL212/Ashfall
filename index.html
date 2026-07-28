@@ -393,6 +393,20 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   position:absolute;bottom:calc(110px + env(safe-area-inset-bottom));left:14px;right:14px;z-index:6;
   background:rgba(20,21,24,0.92);border:1px solid var(--signal);border-radius:6px;padding:12px;text-align:center;
 }
+#ar-crosshair{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:30px;color:rgba(233,228,214,0.55);pointer-events:none;z-index:3;
+  text-shadow:0 0 6px rgba(0,0,0,0.8);
+}
+.ar-figure{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;display:flex;flex-direction:column;align-items:center;}
+.ar-hitzone{border:2px solid var(--bone);box-shadow:0 0 10px rgba(0,0,0,0.6);}
+.ar-hitzone.head{width:20px;height:20px;border-radius:50%;margin-bottom:2px;}
+.ar-hitzone.body{width:34px;height:44px;border-radius:40% 40% 50% 50%;}
+.ar-target.shambler .ar-hitzone{background:rgba(138,156,126,0.55);}
+.ar-target.runner .ar-hitzone{background:rgba(193,85,47,0.55);}
+.ar-target.sporebound .ar-hitzone{background:rgba(124,156,92,0.55);}
+.ar-target.mutated .ar-hitzone{background:rgba(163,90,209,0.55);}
+.ar-hp-mini{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--bone);background:rgba(0,0,0,0.6);padding:1px 4px;border-radius:2px;margin-top:2px;}
 
 </style>
 </head>
@@ -403,6 +417,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   <div id="ar-overlay">
     <video id="ar-video" autoplay playsinline muted></video>
     <div id="ar-targets"></div>
+    <div id="ar-crosshair">✛</div>
     <div class="ar-hud-top">
       <div class="ar-hp-row">
         <span class="ar-hp-label" id="ar-hp-label">HP</span>
@@ -687,6 +702,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
             <option value="Engineer">Lucas — Engineer</option>
           </select>
         </div>
+        <div class="field-row" style="margin-top:10px;">
+          <label>GPS Source</label>
+          <select id="gps-source-select">
+            <option value="">My Own GPS (default)</option>
+            <option value="Hunter">Follow Lawrence's GPS</option>
+            <option value="Scavenger">Follow Lucho's GPS</option>
+            <option value="Medic">Follow Mireyah's GPS</option>
+            <option value="Engineer">Follow Lucas's GPS</option>
+          </select>
+        </div>
+        <p class="flavor" style="margin:8px 0 0;">If your GPS is inaccurate, follow whoever's signal is strongest — you'll still show up as your own blip to others, but all your own detection/AR uses their position.</p>
       </div>
 
       <button class="add-btn" id="radar-enable-btn" style="color:var(--signal);">📡 Enable Location &amp; Compass</button>
@@ -1331,12 +1357,97 @@ function renderInventory(){
           </select>
         </div>
       </div>
-      <div class="field-row"><label>Condition / Uses</label><input type="text" value="${it.cond||''}" data-i="${i}" data-f="cond" data-arr="inventory"></div>`;
+      <div class="field-row"><label>Condition / Uses</label><input type="text" value="${it.cond||''}" data-i="${i}" data-f="cond" data-arr="inventory"></div>
+      <button class="zbtn" data-use-i="${i}" style="width:100%;margin-top:8px;color:var(--signal);border-color:var(--signal);">✨ Use Item</button>`;
     c.appendChild(el);
   });
   bindListInputs();
+  c.querySelectorAll('[data-use-i]').forEach(btn=>{
+    btn.addEventListener('click', ()=> useInventoryItem(+btn.dataset.useI));
+  });
 }
 function addInventory(){ state.inventory.push({category:'Tool'}); saveGear(); renderInventory(); }
+
+/* ---------- ITEM EFFECTS — using an item does something real ---------- */
+function applyItemEffect(itemName, ch){
+  const name = (itemName||'').toLowerCase();
+  const heal = (amt)=>{
+    ch.hp = Math.min(ch.maxHp, ch.hp + amt);
+    if(ch.status !== 'Down') ch.status = ch.hp >= ch.maxHp ? 'Healthy' : (ch.hp <= 3 ? 'Critical' : 'Injured');
+  };
+  if(/bandage|first aid/.test(name)){ heal(3); return `${ch.name||ch.role} patches up with the ${itemName}. +3 HP.`; }
+  if(/ration|canteen|water purification/.test(name)){
+    const amt = ch.role==='Scavenger' ? 2 : 1;
+    heal(amt);
+    return `${ch.name||ch.role} uses the ${itemName}. +${amt} HP.`;
+  }
+  if(/fuel/.test(name)){
+    state.vehicle.fuel = Math.min(10, (state.vehicle.fuel||0)+3);
+    saveGear();
+    return `Refueled with the ${itemName}. Vehicle fuel now ${state.vehicle.fuel}/10.`;
+  }
+  if(/scrap metal/.test(name)){
+    state.vehicle.cond = Math.min(10, (state.vehicle.cond||0)+2);
+    saveGear();
+    return `Patched the vehicle with ${itemName}. Condition now ${state.vehicle.cond}/10.`;
+  }
+  if(/patch kit/.test(name)){
+    ch.aura = Math.min(ch.maxAura, ch.aura+1);
+    return `Gear repaired with the ${itemName} — small morale boost. +1 Aura.`;
+  }
+  if(/ammo/.test(name)){
+    ch.nextAttackAdvantage = true;
+    return `Reloaded with the ${itemName} — advantage on your next attack roll.`;
+  }
+  if(/flare/.test(name)){
+    const zs = myPos ? visibleZombies() : [];
+    if(zs.length){
+      remove(ref(db, `ashfall-zombies/${zs[0].id}`)).catch(()=>{});
+      return `Flare fired — the nearest ${zs[0].type} flees into the ash.`;
+    }
+    return `Flare fired into the sky. Nothing nearby reacted.`;
+  }
+  if(/flashlight/.test(name)){
+    document.getElementById('app').classList.add('flashlight-on');
+    return `Flashlight engaged using the ${itemName}.`;
+  }
+  if(/filter/.test(name)){
+    const ladder = {Critical:'High', High:'Medium', Medium:'Low', Low:'Low'};
+    ch.sporeExp = ladder[ch.sporeExp] || 'Low';
+    return `Spore filter equipped — exposure reduced to ${ch.sporeExp}.`;
+  }
+  if(/radio chatter|chatter log/.test(name)){
+    const f = state.factions.find(fc=>fc.name==='Lost Signal');
+    if(f){
+      const ladder = ['Hostile','Wary','Neutral','Friendly','Allied'];
+      let idx = Math.min(ladder.length-1, ladder.indexOf(f.standing)+1);
+      f.standing = ladder[idx]; saveWorld(); renderFactions();
+    }
+    return `You decode the ${itemName} — Lost Signal takes notice of your help.`;
+  }
+  if(/rope|carabiner/.test(name)) return `The ${itemName} is ready for climbing or lowering someone safely — no stat change, just good gear to have.`;
+  if(/map.*pencil|grease pencil/.test(name)) return `You mark the route with the ${itemName}. Good for planning your next move.`;
+  if(/photograph/.test(name)) return `You study the ${itemName} again. Might mean something to the right person.`;
+  return `You use the ${itemName}. No mechanical effect built in for this one — narrate it at the table.`;
+}
+
+function useInventoryItem(idx){
+  const it = state.inventory[idx];
+  if(!it) return;
+  const ch = state.characters.find(c=>c.role===radarRole) || state.characters[0];
+  const msg = applyItemEffect(it.item, ch);
+  saveParty(); renderParty();
+
+  if((it.qty||1) > 1) it.qty = it.qty - 1; else state.inventory.splice(idx,1);
+  saveGear(); renderInventory();
+
+  showThreatToast(`🎒 ${msg}`);
+  state.encounters.push({
+    location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    who: ch.name||ch.role, action:`Used ${it.item}`, outcome: msg
+  });
+  saveLog(); renderEncounters();
+}
 
 function bindListInputs(){
   document.querySelectorAll('[data-arr]').forEach(el=>{
@@ -1498,6 +1609,7 @@ const ZOMBIE_TYPES = [
   {type:'Sporebound', weight:3},
   {type:'Mutated',    weight:1}
 ];
+const ZOMBIE_MAX_HP = {Shambler:3, Runner:4, Sporebound:4, Mutated:8};
 const SPAWN_COOLDOWN_MS = 45000;
 const MAX_ZOMBIES = 8;
 const DESPAWN_RADIUS_M = 500;
@@ -1533,7 +1645,9 @@ const DEVICE_ID = (function(){
   if(!id){ id = 'dev-' + Math.random().toString(36).slice(2,10); localStorage.setItem('ashfall-device-id', id); }
   return id;
 })();
-let myPos = null;      // {lat, lng}
+let myPos = null;      // {lat, lng} — the position actually used for all gameplay logic (may be a followed teammate's)
+let rawMyPos = null;   // {lat, lng} — this device's own true GPS reading, always broadcast as-is
+let followRole = localStorage.getItem('ashfall-follow-role') || '';
 let myHeading = 0;     // degrees, 0 = North
 let zombies = {};      // id -> {lat,lng,type,spawnedAt}
 let teammates = {};    // role -> {lat,lng,updatedAt}
@@ -1598,6 +1712,15 @@ function initRadarUI(){
     renderRadar(); renderZombieList(); renderLootList(); updateMapMarkers();
   });
   document.getElementById('radar-enable-btn').addEventListener('click', enableRadar);
+  const gpsSel = document.getElementById('gps-source-select');
+  gpsSel.value = followRole;
+  gpsSel.addEventListener('change', ()=>{
+    followRole = gpsSel.value;
+    localStorage.setItem('ashfall-follow-role', followRole);
+    if(!followRole && rawMyPos) myPos = rawMyPos; // switching back to "my own GPS"
+    else applyFollowMode();
+    renderRadar(); updateMapMarkers();
+  });
   document.getElementById('view-radar-btn').addEventListener('click', ()=>switchRadarView('radar'));
   document.getElementById('view-map-btn').addEventListener('click', ()=>switchRadarView('map'));
   document.getElementById('view-ar-btn').addEventListener('click', ()=>switchRadarView('ar'));
@@ -1608,6 +1731,7 @@ function initRadarUI(){
   });
   onValue(ref(db,'ashfall-live-positions'), snap=>{
     teammates = snap.exists() ? snap.val() : {};
+    applyFollowMode();
     renderRadar(); updateMapMarkers();
   });
   onValue(ref(db,'ashfall-loot-drops'), snap=>{
@@ -1677,12 +1801,24 @@ function startCompass(){
   window.addEventListener('deviceorientation', handler, true);
 }
 
+function applyFollowMode(){
+  if(followRole && followRole !== radarRole && teammates[followRole] && teammates[followRole].lat != null){
+    myPos = {lat: teammates[followRole].lat, lng: teammates[followRole].lng};
+    return true;
+  }
+  return false;
+}
+
 function startGeolocation(){
   if(!navigator.geolocation){ setRadarStatus('Geolocation not supported on this browser.'); return; }
   if(watchId) navigator.geolocation.clearWatch(watchId);
   watchId = navigator.geolocation.watchPosition(pos=>{
-    myPos = {lat: pos.coords.latitude, lng: pos.coords.longitude};
-    setRadarStatus(`Tracking — ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`);
+    rawMyPos = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+    const following = applyFollowMode();
+    if(!following) myPos = rawMyPos;
+    setRadarStatus(following
+      ? `Following ${followRole}'s GPS — ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`
+      : `Tracking — ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`);
     maybeWritePosition();
     maybeSpawn();
     maybeDespawn();
@@ -1714,7 +1850,7 @@ async function maybeWritePosition(){
       }
       return; // don't overwrite the other device's position
     }
-    set(ref(db, `ashfall-live-positions/${radarRole}`), {lat:myPos.lat, lng:myPos.lng, updatedAt:now, deviceId:DEVICE_ID}).catch(()=>{});
+    set(ref(db, `ashfall-live-positions/${radarRole}`), {lat:rawMyPos.lat, lng:rawMyPos.lng, updatedAt:now, deviceId:DEVICE_ID}).catch(()=>{});
   }catch(e){ /* best effort */ }
 }
 
@@ -1738,7 +1874,8 @@ async function maybeSpawn(){
         const spawnLat = myPos.lat+dLat, spawnLng = myPos.lng+dLng;
         if(isInsideSafehouse(spawnLat, spawnLng)) continue; // don't drop one right inside a safe zone either
         const newRef = push(ref(db,'ashfall-zombies'));
-        await set(newRef, {lat: spawnLat, lng: spawnLng, type: weightedRandomType(), spawnedAt: Date.now(), facing: Math.random()*360, aggro:false});
+        const chosenType = weightedRandomType();
+        await set(newRef, {lat: spawnLat, lng: spawnLng, type: chosenType, spawnedAt: Date.now(), facing: Math.random()*360, aggro:false, hp: ZOMBIE_MAX_HP[chosenType]||3});
       }
     }
   }catch(e){ /* best effort */ }
@@ -2423,33 +2560,49 @@ function renderARTargets(){
   const half = AR_FOV_DEG/2;
   let leftFlag = false, rightFlag = false;
 
-  const placeEntity = (brg, dist, cls, label, onTap)=>{
-    const rel = relBearing(brg);
-    if(Math.abs(rel) > half){
-      if(rel < 0) leftFlag = true; else rightFlag = true;
-      return;
-    }
+  const placeLoot = (l)=>{
+    const rel = relBearing(l.brg);
+    if(Math.abs(rel) > half){ if(rel<0) leftFlag=true; else rightFlag=true; return; }
     const xPct = 50 + (rel/half)*50;
-    const scale = Math.max(0.5, Math.min(1.6, 40/Math.max(dist,8)));
+    const scale = Math.max(0.5, Math.min(1.6, 40/Math.max(l.dist,8)));
     const el = document.createElement('div');
-    el.className = 'ar-target ' + cls;
-    el.style.left = xPct+'%';
-    el.style.top = '58%';
-    el.style.setProperty('transform', `translate(-50%,-50%) scale(${scale.toFixed(2)})`);
-    el.innerHTML = `<div class="ar-dot">${cls==='loot'?'$':''}</div><div class="ar-target-label">${label}</div>`;
-    if(onTap) el.addEventListener('click', onTap);
-    layer.appendChild(el);
-  };
-
-  visibleZombies().forEach(z=>{
-    placeEntity(z.brg, z.dist, z.type.toLowerCase(), `${z.type} · ${Math.round(z.dist)}m`, ()=> openARAttack(z));
-  });
-  visibleLoot().forEach(l=>{
-    placeEntity(l.brg, l.dist, 'loot', `${l.item} · ${Math.round(l.dist)}m`, ()=>{
+    el.className = 'ar-target loot';
+    el.style.left = xPct+'%'; el.style.top = '58%';
+    el.style.transform = `translate(-50%,-50%) scale(${scale.toFixed(2)})`;
+    el.innerHTML = `<div class="ar-dot">$</div><div class="ar-target-label">${l.item} · ${Math.round(l.dist)}m</div>`;
+    el.addEventListener('click', ()=>{
       if(l.dist <= LOOT_PICKUP_RANGE_M) pickUpLoot(l.id);
       else showThreatToast(`Get closer to pick up ${l.item} (${Math.round(l.dist)}m away).`);
     });
-  });
+    layer.appendChild(el);
+  };
+
+  const placeZombie = (z)=>{
+    const rel = relBearing(z.brg);
+    if(Math.abs(rel) > half){ if(rel<0) leftFlag=true; else rightFlag=true; return; }
+    const xPct = 50 + (rel/half)*50;
+    const scale = Math.max(0.5, Math.min(1.7, 40/Math.max(z.dist,8)));
+    const liveZ = zombies[z.id] || z;
+    const maxHp = ZOMBIE_MAX_HP[z.type] || 3;
+    const hp = liveZ.hp != null ? liveZ.hp : maxHp;
+
+    const fig = document.createElement('div');
+    fig.className = 'ar-figure ar-target ' + z.type.toLowerCase();
+    fig.style.left = xPct+'%'; fig.style.top = '56%';
+    fig.style.transform = `translate(-50%,-50%) scale(${scale.toFixed(2)})`;
+    fig.innerHTML = `
+      <div class="ar-hitzone head" data-zone="head"></div>
+      <div class="ar-hitzone body" data-zone="body"></div>
+      <div class="ar-hp-mini">${hp}/${maxHp} HP</div>
+      <div class="ar-target-label">${z.type} · ${Math.round(z.dist)}m</div>
+    `;
+    fig.querySelector('[data-zone="head"]').addEventListener('click', (e)=>{ e.stopPropagation(); openARAttack(z,'head'); });
+    fig.querySelector('[data-zone="body"]').addEventListener('click', (e)=>{ e.stopPropagation(); openARAttack(z,'body'); });
+    layer.appendChild(fig);
+  };
+
+  visibleZombies().forEach(placeZombie);
+  visibleLoot().forEach(placeLoot);
 
   document.querySelectorAll('.ar-edge-arrow').forEach(e=>e.remove());
   if(leftFlag){
@@ -2460,35 +2613,59 @@ function renderARTargets(){
   }
 }
 
-function openARAttack(z){
+function openARAttack(z, zone){
   const existing = document.querySelector('.ar-attack-panel');
   if(existing) existing.remove();
   const ch = state.characters.find(c=>c.role===radarRole);
   const die = ch ? ROLE_DICE[ch.role].combat : 'd20';
+  const sides = parseInt(die.replace('d',''));
+  const isHead = zone === 'head';
+  const dc = isHead ? Math.ceil(sides*0.75) : Math.ceil(sides*0.5);
   const panel = document.createElement('div');
   panel.className = 'ar-attack-panel';
   panel.innerHTML = `
-    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--signal);letter-spacing:1px;">ATTACK ${z.type.toUpperCase()} — ${die.toUpperCase()}</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--signal);letter-spacing:1px;">${isHead ? 'HEADSHOT ATTEMPT' : 'BODY SHOT'} — ${z.type.toUpperCase()} — ${die.toUpperCase()}</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--bone-dim);margin-top:4px;">${isHead ? `Need ${dc}+ — risky, but ends it instantly on a hit.` : `Need ${dc}+ — reliable, chips away its health.`}</div>
     <button class="roll-die-btn" id="ar-attack-roll" style="margin-top:8px;">🎲 Roll to Attack</button>
     <div id="ar-attack-result"></div>
   `;
   document.getElementById('ar-overlay').appendChild(panel);
   document.getElementById('ar-attack-roll').addEventListener('click', ()=>{
-    const sides = parseInt(die.replace('d',''));
-    const roll = 1 + Math.floor(Math.random()*sides);
-    const success = roll >= Math.ceil(sides*0.5);
+    let roll = 1 + Math.floor(Math.random()*sides);
+    if(ch && ch.nextAttackAdvantage){
+      const roll2 = 1 + Math.floor(Math.random()*sides);
+      roll = Math.max(roll, roll2);
+      ch.nextAttackAdvantage = false;
+      saveParty(); renderParty();
+    }
+    const success = roll >= dc;
     const resEl = document.getElementById('ar-attack-result');
+    const liveZ = zombies[z.id] || z;
+    const maxHp = ZOMBIE_MAX_HP[z.type] || 3;
+    const currentHp = liveZ.hp != null ? liveZ.hp : maxHp;
+
     if(success){
-      resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--spore);margin-top:8px;">Roll ${roll} — Hit! ${z.type} goes down.</div>`;
-      remove(ref(db, `ashfall-zombies/${z.id}`)).catch(()=>{});
-      state.encounters.push({
-        location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
-        who: (ch&&ch.name)||radarRole, threat:z.type, action:'Attacked in AR view', roll:`${die}: ${roll}`, outcome:'Defeated'
-      });
+      const dmg = isHead ? currentHp : (roll === sides ? 2 : 1); // headshot = lethal; bodyshot chips HP, crit doubles it
+      const newHp = currentHp - dmg;
+      if(newHp <= 0){
+        remove(ref(db, `ashfall-zombies/${z.id}`)).catch(()=>{});
+        resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--spore);margin-top:8px;">Roll ${roll} — ${isHead?'HEADSHOT! ':'Hit! '}${z.type} goes down for good.</div>`;
+        state.encounters.push({
+          location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+          who: (ch&&ch.name)||radarRole, threat:z.type, action:`${isHead?'Headshot':'Body shot'} in AR view`, roll:`${die}: ${roll}`, outcome:'Defeated'
+        });
+      } else {
+        set(ref(db, `ashfall-zombies/${z.id}`), {...liveZ, hp:newHp}).catch(()=>{});
+        resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--bone);margin-top:8px;">Roll ${roll} — Hit! ${z.type} down to ${newHp}/${maxHp} HP.</div>`;
+        state.encounters.push({
+          location: state.location.real||'', time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+          who: (ch&&ch.name)||radarRole, threat:z.type, action:`Body shot in AR view`, roll:`${die}: ${roll}`, outcome:`Wounded — ${newHp}/${maxHp} HP left`
+        });
+      }
       saveLog(); renderEncounters();
     } else {
-      resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--danger);margin-top:8px;">Roll ${roll} — Miss! It's still coming.</div>`;
-      set(ref(db, `ashfall-zombies/${z.id}`), {...zombies[z.id], aggro:true}).catch(()=>{});
+      resEl.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--danger);margin-top:8px;">Roll ${roll} — Miss! It's still coming${isHead?' — that was a risky shot':''}.</div>`;
+      set(ref(db, `ashfall-zombies/${z.id}`), {...liveZ, aggro:true}).catch(()=>{});
     }
     setTimeout(()=> panel.remove(), 2200);
   });
